@@ -9,6 +9,7 @@ import System.Environment( getArgs )
 
 -- split this up
 -- add a way to debug
+-- selection may have cursor at start or end. handle this?
 main :: IO ()
 main =
  do { args <- getArgs
