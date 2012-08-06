@@ -7,6 +7,8 @@ import Debug.Trace
 import System.IO
 import System.Environment( getArgs )
 
+-- split this up
+-- add a way to debug
 main :: IO ()
 main =
  do { args <- getArgs
@@ -14,9 +16,23 @@ main =
         [offsetStr, lengthStr] ->
          do { let offset = read offsetStr :: Int
                   len = read lengthStr :: Int
-            ; inp <- getContents
-            ; putStrLn $ show offset ++ " 1 "++show offset ++ " "++show len
-            ; putStrLn $ "{-"++take len (drop offset inp)++"-}"
+            
+            ; doc <- getContents
+            
+            ; let ((line,col),_) = offsetToSpan doc offset len 
+            
+            ; let modl = unsafeParse doc
+            ; (newSelOffset, newSelLen, replaceOffset, replaceLen, replacementTxt) <-
+                case getDeclForSpanModule line col modl of
+                  [decl] ->
+                   do { let span = srcInfoSpan $ ann decl
+                      ; let (declOffset, declLen) = spanToOffset doc span  
+                      ; return (declOffset, declLen, 0, 0, "") 
+                      }
+                  _ -> return (offset, len, 0,0, "") 
+            ; putStrLn $ show newSelOffset ++ " " ++ show newSelLen ++ " " ++
+                         show replaceOffset ++ " "++show replaceLen
+            ; putStrLn $ replacementTxt
               -- add newline, since Eclipse adds one if last line does not end with it. 
               -- Now we can simply always remove the last character. 
             }
@@ -26,21 +42,36 @@ main =
 offsetToSpan :: String -> Int -> Int -> ((Int,Int),(Int,Int))
 offsetToSpan doc offset len = (getPos 0 offset lineLengths, getPos 0 (offset+len) lineLengths)
  where lineLengths = map length $ lines doc
-       getPos l o []           = (l, o) -- error
-       getPos l o (lln : llns) = if o > lln then getPos (l+1) (o-lln-1) llns else (l, o)
+       getPos l o []           = error "wrong offset"
+       getPos l o (lln : llns) = if o > lln then getPos (l+1) (o-lln-1) llns else (l+1, o+1)
+-- maybe use scanl
+
+
+spanToOffset :: String -> SrcSpan -> (Int, Int)
+spanToOffset doc (SrcSpan _ sl sc el ec) = (offsetS, offsetE - offsetS)
+ where offsetS = getOffset sl sc  
+       offsetE = getOffset el ec 
+       lineLengths = map length $ lines doc
+       getOffset l c = l - 1 + sum (take (l - 1) lineLengths) + c -1
+                      -- l-1 is for the newlines
         
 prg = unlines  
-  [ "f ="
+  [ ""
+  , "f ="
   , " do   putStrLn \"\""
   , "      return   ()"
   , " -- bla"
   , "      return ()"
   , "   "
   , "g :: ()"
-  , "g = ()"
+  , "g = ()" -- PatBind
+  , ""
+  , "ff x = ()" -- FunBind
   ]
 
 m = case parseFileContents prg of ParseOk modl -> modl
+
+unsafeParse inp = case parseFileContents inp of ParseOk modl -> modl
 
 pm = defaultParseMode{extensions=[]}
 
@@ -54,6 +85,24 @@ showSpanInfo (SrcSpanInfo srcSpan infoPoints) = "Span " ++showSpan srcSpan ++ "[
 showSpan (SrcSpan _ sl sc el ec) = "{"++show sl++":"++show sc++"-"++show el++":"++show ec++"}"
 
 debugSpan str = noInfoSpan $ SrcSpan str 0 0 0 0
+
+isWithinSpan :: Int -> Int -> SrcSpan -> Bool
+isWithinSpan line col (SrcSpan _ sl sc el ec) | line < sl || line > el = False 
+                                              | line == sl && col >= sc = True
+                                              | line > sl && line < el = True
+                                              | line == el && col <= ec = True
+                                              | otherwise              = False
+isWithinSpanInfo :: Int -> Int -> SrcSpanInfo -> Bool
+isWithinSpanInfo line col si = isWithinSpan line col $ srcInfoSpan si
+
+getDeclForSpanModule :: Int -> Int -> Module SrcSpanInfo -> [Decl SrcSpanInfo]
+getDeclForSpanModule line col (Module _ _ _  _ decls) = [d | d<-decls, isWithinSpanInfo  line col $ ann d ] 
+getDeclForSpanModule line col _                       = []
+
+getDeclSpansModule :: Int -> Int -> Module SrcSpanInfo -> [SrcSpanInfo]
+getDeclSpansModule line col (Module _ _ _  _ decls) = map ann decls
+
+
 
 processModule :: Module SrcSpanInfo -> [SrcSpanInfo]
 processModule (Module _ _ _  _ decls) = concatMap processDecl decls
