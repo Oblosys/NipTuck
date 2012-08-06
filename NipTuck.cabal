@@ -1,0 +1,14 @@
+name:           NipTuck
+version:        0.1
+cabal-version:  >= 1.2
+build-type:     Simple
+author:         Martijn Schrage
+
+executable niptuck
+  hs-source-dirs:  src
+  main-is:         Main.hs
+  build-depends:   
+                   base >= 4,
+                   haskell-src-exts
+  ghc-options:     -Wall
+
