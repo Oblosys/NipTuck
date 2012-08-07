@@ -9,13 +9,13 @@ import System.Environment( getArgs )
 
 
 -- add a way to debug
+-- handle options vs language pragma's (and add the one that ghc enables by default) (what about cabal file options??)
 -- add comment handling
 -- do we need to return only a selection? just the whole do is simpler and makes no difference for Elipse
 -- add multiline stuff
 -- add do, let, where, data, ..
 -- selection may have cursor at start or end. handle this?
 -- parse result and compare with src to check if transformation was ok.
-
 -- what are infoPoints? FunBind and Match don't seem to have any
 
 -- Range is (Offset, Pos)  0-based
@@ -200,7 +200,9 @@ isWithinSpanInfo line col si = isWithinSpan line col $ srcInfoSpan si
 
 getDeclForSpanModule :: Int -> Int -> Module SrcSpanInfo -> Maybe (Decl SrcSpanInfo)
 getDeclForSpanModule line col (Module _ _ _  _ decls) = case [d | d<-decls, isWithinSpanInfo  line col $ ann d ] of
-                                                          [d] -> Just d 
+                                                          [d] -> Just d
+                                                          []  -> Nothing
+                                                          _   -> error "Multiple declarations" 
 getDeclForSpanModule line col _                       = Nothing
 
 getDeclsModule :: Module SrcSpanInfo -> [Decl SrcSpanInfo]
