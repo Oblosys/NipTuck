@@ -1,15 +1,26 @@
 module Main where
 
-import Language.Haskell.Exts.Annotated
+import Language.Haskell.Exts.Annotated hiding (layout)
 import Language.Haskell.Exts.Extension
 import Data.List
 import Debug.Trace
 import System.IO
 import System.Environment( getArgs )
 
--- split this up
+
 -- add a way to debug
+-- add comment handling
+-- do we need to return only a selection? just the whole do is simpler and makes no difference for Elipse
+-- add multiline stuff
+-- add do, let, where, data, ..
 -- selection may have cursor at start or end. handle this?
+-- parse result and compare with src to check if transformation was ok.
+
+-- what are infoPoints? FunBind and Match don't seem to have any
+
+-- Range is (Offset, Pos)  0-based
+-- Span is (startline, startcol, endline, endcol)  1-based
+
 main :: IO ()
 main =
  do { args <- getArgs
@@ -17,22 +28,11 @@ main =
         [offsetStr, lengthStr] ->
          do { let offset = read offsetStr :: Int
                   len = read lengthStr :: Int
-            
             ; doc <- getContents
+            ; let (newSelRange, newSelLen, replaceRange, replaceLen, replacementTxt) = layout doc offset len
             
-            ; let ((line,col),_) = offsetToSpan doc offset len 
-            
-            ; let modl = unsafeParse doc
-            ; (newSelOffset, newSelLen, replaceOffset, replaceLen, replacementTxt) <-
-                case getDeclForSpanModule line col modl of
-                  [decl] ->
-                   do { let span = srcInfoSpan $ ann decl
-                      ; let (declOffset, declLen) = spanToOffset doc span  
-                      ; return (declOffset, declLen, 0, 0, "") 
-                      }
-                  _ -> return (offset, len, 0,0, "") 
-            ; putStrLn $ show newSelOffset ++ " " ++ show newSelLen ++ " " ++
-                         show replaceOffset ++ " "++show replaceLen
+            ; putStrLn $ show newSelRange ++ " " ++ show newSelLen ++ " " ++
+                         show replaceRange ++ " "++show replaceLen
             ; putStrLn $ replacementTxt
               -- add newline, since Eclipse adds one if last line does not end with it. 
               -- Now we can simply always remove the last character. 
@@ -40,25 +40,119 @@ main =
             -- todo: handle incorrect args
     }
 
-offsetToSpan :: String -> Int -> Int -> ((Int,Int),(Int,Int))
-offsetToSpan doc offset len = (getPos 0 offset lineLengths, getPos 0 (offset+len) lineLengths)
+layout :: String -> Int -> Int -> (Int, Int, Int, Int, String)
+layout doc selRange selLen =
+  let ((line,col),_) = rangeToSpan doc selRange selLen 
+      modl = unsafeParse doc
+  in  case getDeclForSpanModule line col modl of
+        Just (FunBind srcInfo ms) -> 
+          let declSpan = srcInfoSpan srcInfo
+              alignSpanss = map getNamePatternSpansMatch ms
+          in  if all (sameLine) alignSpanss then -- only do this if everything before = is on same line as =
+                let namePatternRangess = map (map $ spanToRange doc) alignSpanss
+                    nips = alignRangess namePatternRangess
+                    doc' = applyNips doc nips
+                    
+                    (declRange, declLen) = spanToRange doc declSpan
+                    (declRange',declLen') = nudgeRange nips (declRange, declLen)
+                    (selRange',selLen') = nudgeRange nips (selRange, selLen)
+                    
+                in  trace (show nips ++ "\n" ++ doc') $ 
+                    (selRange', selLen', declRange, declLen, select (declRange', declLen') doc')
+              else (selRange, selLen, 0, 0, "") -- don't do anything
+        _      -> (selRange, selLen, 0,0, "")   -- don't do anything
+
+annSp :: Annotated ast => ast SrcSpanInfo -> SrcSpan
+annSp = srcInfoSpan . ann
+
+-- start of first and start of last must be on same line
+sameLine :: [SrcSpan] -> Bool
+sameLine []    = True
+sameLine spans = srcSpanStartLine (head spans) == srcSpanStartLine (last spans) 
+
+getSpanHeight :: SrcSpan -> Int
+getSpanHeight (SrcSpan _ sl _ el _) = el - sl + 1
+
+data Nip = Nip { nipRange :: Int, nipDisplacement :: Int } deriving Show
+
+-- non-optimized simple implemenation
+-- nips are assumed to be sorted
+applyNips :: String -> [Nip] -> String
+applyNips doc [] = doc
+applyNips doc (Nip offset displ : nips) =
+  let doc' = applyNips doc nips
+  in  if displ < 0 
+      then let (left, right) = splitAt (offset + displ) doc'
+           in  left ++ drop (-displ) right 
+      else let (left, right) = splitAt offset doc'
+           in  left ++ replicate displ ' ' ++ right
+
+-- probably not worth optimizing
+nudgeRange :: [Nip] -> (Int,Int) -> (Int,Int)
+nudgeRange nips (offset, len) = (offsetS, offsetE - offsetS)
+ where offsetS = nudgeOffset nips offset
+       offsetE = nudgeOffset nips (offset + len) 
+
+nudgeOffset :: [Nip] -> Int -> Int
+nudgeOffset [] offset = offset
+nudgeOffset (Nip p d : nips) offset =
+  let offset' = nudgeOffset nips offset
+  in  if d < 0 
+      then if p <= offset -- removed sequence is before offset
+           then d + offset'        
+           else if p + d < offset -- offset is in removed sequence, no recursion, nips are sorted
+                then let nudge = offset - (p+d)
+                     in  offset - nudge
+                else  offset -- removed sequence is after offset, no recursion, nips are sorted
+      else if p <= offset then d + offset' else offset -- no recursion, nips are sorted
+
+-- ...xxx...   -> ......
+-- ...p        -> ...p
+-- ... p       -> ...p
+-- ...   p..   -> ...p
+
+
+alignRangess :: [[(Int, Int)]] -> [Nip]
+alignRangess rangeLines =
+  let rangeCols = transpose rangeLines
+      colWidths  = init $ map (maximum . map snd) rangeCols -- last col is elt after aligned elts
+  in  trace (show colWidths ++ show rangeLines) $ concatMap (alignRanges colWidths) rangeLines 
+
+-- column widths is one shorter than ranges
+alignRanges :: [Int] -> [(Int, Int)] -> [Nip]
+alignRanges [] [_] = []
+alignRanges (w:colWidths) ((o,_):ranges@((o',_):_)) =
+  (if o' - o /= w + 1 then [Nip o' $ w - (o' - o) + 1]
+                      else [])
+  ++ alignRanges colWidths ranges
+alignRanges ws os = error $ "alignRanges: incompatible nr of widths and ranges: "++show ws ++ show os 
+
+getNamePatternSpansMatch :: Match SrcSpanInfo -> [SrcSpan]
+getNamePatternSpansMatch (Match _ nm pats rh _) = annSp nm : map annSp pats ++ [annSp rh]
+getNamePatternSpansMatch (InfixMatch _ pl nm prs rh _) = [annSp pl, annSp nm] ++ map annSp prs ++ [annSp rh]
+
+rangeToSpan :: String -> Int -> Int -> ((Int,Int),(Int,Int))
+rangeToSpan doc offset len = (getPos 0 offset lineLengths, getPos 0 (offset+len) lineLengths)
  where lineLengths = map length $ lines doc
        getPos l o []           = error "wrong offset"
        getPos l o (lln : llns) = if o > lln then getPos (l+1) (o-lln-1) llns else (l+1, o+1)
 -- maybe use scanl
 
 
-spanToOffset :: String -> SrcSpan -> (Int, Int)
-spanToOffset doc (SrcSpan _ sl sc el ec) = (offsetS, offsetE - offsetS)
+spanToRange :: String -> SrcSpan -> (Int, Int)
+spanToRange doc (SrcSpan _ sl sc el ec) = (offsetS, offsetE - offsetS)
  where offsetS = getOffset sl sc  
        offsetE = getOffset el ec 
        lineLengths = map length $ lines doc
        getOffset l c = l - 1 + sum (take (l - 1) lineLengths) + c -1
-                      -- l-1 is for the newlines
-        
-prg = unlines  
-  [ ""
-  , "f ="
+                    -- l - 1 is for the newlines
+
+select :: (Int, Int) -> String -> String
+select (offset, len) doc = take len $ drop offset doc
+
+prg1 = unlines  
+  [ "f x = ()"
+  , "m ="
   , " do   putStrLn \"\""
   , "      return   ()"
   , " -- bla"
@@ -70,13 +164,21 @@ prg = unlines
   , "ff x = ()" -- FunBind
   ]
 
-m = case parseFileContents prg of ParseOk modl -> modl
-
+prg2 = unlines
+  [ "f x yyyy z = ()"
+  , "f (_:_) _ blaa = ()"
+  , "g = ()"
+  ]
+  
 unsafeParse inp = case parseFileContents inp of ParseOk modl -> modl
+                                                parseError   -> error $ show parseError
+
+unsafeParseC inp = case parseFileContentsWithComments pm inp of ParseOk modl -> modl
+                                                                parseError   -> error $ show parseError
 
 pm = defaultParseMode{extensions=[]}
 
-tst = let p = parseFileContents prg :: ParseResult (Module SrcSpanInfo)
+tst prg = let p = parseFileContents prg :: ParseResult (Module SrcSpanInfo)
       in  case p of --  :: ParseResult (Module SrcSpanInfo) of
             ParseOk modl -> concatMap showSpanInfo $ processModule modl
             r@(ParseFailed _ _) -> show r
@@ -96,13 +198,14 @@ isWithinSpan line col (SrcSpan _ sl sc el ec) | line < sl || line > el = False
 isWithinSpanInfo :: Int -> Int -> SrcSpanInfo -> Bool
 isWithinSpanInfo line col si = isWithinSpan line col $ srcInfoSpan si
 
-getDeclForSpanModule :: Int -> Int -> Module SrcSpanInfo -> [Decl SrcSpanInfo]
-getDeclForSpanModule line col (Module _ _ _  _ decls) = [d | d<-decls, isWithinSpanInfo  line col $ ann d ] 
-getDeclForSpanModule line col _                       = []
+getDeclForSpanModule :: Int -> Int -> Module SrcSpanInfo -> Maybe (Decl SrcSpanInfo)
+getDeclForSpanModule line col (Module _ _ _  _ decls) = case [d | d<-decls, isWithinSpanInfo  line col $ ann d ] of
+                                                          [d] -> Just d 
+getDeclForSpanModule line col _                       = Nothing
 
-getDeclSpansModule :: Int -> Int -> Module SrcSpanInfo -> [SrcSpanInfo]
-getDeclSpansModule line col (Module _ _ _  _ decls) = map ann decls
-
+getDeclsModule :: Module SrcSpanInfo -> [Decl SrcSpanInfo]
+getDeclsModule (Module _ _ _  _ decls) = decls
+getDeclsModule _                       = []
 
 
 processModule :: Module SrcSpanInfo -> [SrcSpanInfo]
@@ -155,21 +258,3 @@ show1Decl SpecSig{}          = "SpecSig{}"
 show1Decl SpecInlineSig{}    = "SpecInlineSig{}"  
 show1Decl InstSig{}          = "InstSig{}"        
 show1Decl AnnPragma{}        = "AnnPragma{}"
-
-{-
-hlayout selection
-hlayout file --line= --column=
-
-returns layed out function (or entire file for some --entire flag)
-as well as new cursor/selection 
-
-.hlayout file or pass flags
-
-Eclipse:
-command that calls external executable with selection or entire file + cursor/selection
-and replaces selection with layout 
-
-
-
-
--}
