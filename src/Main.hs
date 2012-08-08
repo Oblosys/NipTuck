@@ -18,9 +18,13 @@ import System.Environment( getArgs )
 -- parse result and compare with src to check if transformation was ok.
 -- what are infoPoints? FunBind and Match don't seem to have any
 
+
+-- Probably not going to handle string gaps (e.g. "bla\     \bla")
 -- Range is (Offset, Pos)  0-based
 -- Span is (startline, startcol, endline, endcol)  1-based
-
+-- idea:preceding whitespace map:  offset -> preceding whitespace string
+-- scan doc, skip {- until matching -}, skip -- until newline, and on non-whitespace put string in map.
+-- use this info to move tokens around. (building by hand is tricky, as we need the SrcInfoSpan of the preceding token)    
 main :: IO ()
 main =
  do { args <- getArgs
