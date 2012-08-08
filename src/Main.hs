@@ -193,6 +193,12 @@ showSpan (SrcSpan _ sl sc el ec) = "{"++show sl++":"++show sc++"-"++show el++":"
 
 debugSpan str = noInfoSpan $ SrcSpan str 0 0 0 0
 
+
+showSpans :: (Functor m) => m SrcSpanInfo -> m String
+showSpans mod = fmap showShortSpanInfo mod 
+ where showShortSpanInfo (SrcSpanInfo srcSpan infoPoints) = showShortSpan srcSpan ++ if null infoPoints then "" else " [" ++ intercalate ", " (map showShortSpan infoPoints) ++"]"
+       showShortSpan     (SrcSpan _ sl sc el ec) = show sl++":"++show sc++"-"++show el++":"++show ec
+       
 isWithinSpan :: Int -> Int -> SrcSpan -> Bool
 isWithinSpan line col (SrcSpan _ sl sc el ec) | line < sl || line > el = False 
                                               | line == sl && col >= sc = True
