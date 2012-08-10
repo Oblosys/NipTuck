@@ -61,6 +61,12 @@ main =
             -- todo: handle incorrect args
     }
 
+layoutExp :: String -> Int -> Int -> (Int, Int, Int, Int, String)
+layoutExp doc selRange selLen =
+  let modl = unsafeParse doc
+      doc' = showLayout $ execLayout doc $ applyMove (1,5) (1,6)
+  in  (selRange, selLen, 0, length doc', doc')
+  
 layout :: String -> Int -> Int -> (Int, Int, Int, Int, String)
 layout doc selRange selLen =
   let ((line,col),_) = rangeToSpan doc selRange selLen 
@@ -71,7 +77,7 @@ layout doc selRange selLen =
               alignSpanss = map getNamePatternSpansMatch ms
           in  if all (sameLine) alignSpanss then -- only do this if everything before = is on same line as =
                 let namePatternRangess = map (map $ spanToRange doc) alignSpanss
-                    nips = alignRangess namePatternRangess
+                    nips = alignRangess namePatternRangess  -- todo: alignment goes wrong if one match has a guard and one doesn't
                     doc' = applyNips doc nips
                     
                     (declRange, declLen) = spanToRange doc declSpan
