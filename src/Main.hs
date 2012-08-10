@@ -17,14 +17,41 @@ data Y = Y Int String deriving (Data, Typeable)
 
 anX = X 2 (Y 3 "d") (Y 1 "ee")
 
-tzt :: (Data a) => a ->String
-tzt x = execState ((everything (>>) $ return () `mkQ` f1 `extQ` f2) x) ""
- where f1 :: String -> State String ()
-       f1 str = modify (++"s")
-       f2 :: Y -> State String ()
-       f2 y = modify (++"f2")
+layoutGen :: (Data a) => a -> LayoutM () 
+layoutGen x = ((everything (>>) $ return () `mkQ` layoutDecl `extQ` layoutExp) x) 
+
+layoutDecl :: Decl SrcSpanInfo -> LayoutM ()
+layoutDecl decl = return ()
+
+layoutExp :: Exp SrcSpanInfo -> LayoutM ()
+layoutExp e@Do{} = layoutDo e
+layoutExp exp    = return ()
 
 
+-- note maybe make it impossible to access lines and columns from span info, since these cannot be used to compute moves
+-- (if token has moved already, pos from span is no longer correct) These errors will be tricky to detect.
+layoutDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
+ do { (doL,doC) <- getLayoutPos $ startPos doInfo
+    ; case bracketsAndSemisSpans of
+        [] -> return ()
+        (doSpan:bracket:semisBracket) ->
+         do { traceM (concatMap showSpan bracketsAndSemisSpans) -- TODO: find nice combinators to do this stuff 
+            ; (obrackLine, _) <- getLayoutPos $ startPos bracket
+            ; applyMove (startPos bracket) (doL, doC+3)
+            ; applyMove (startPos . ann $ head stmts) (doL, doC + 5)
+            ; sequence_ [ do { applyNewlineMove (startPos tk) (doC+3) 
+                             ; (semiLine, _) <- getLayoutPos $ startPos tk
+                             ; applyMove (startPos $ ann stmt) (semiLine, doC + 5)
+                             }
+                        | (tk,stmt) <- zip (init semisBracket) (tail stmts) 
+                        ]                                    
+            ; applyNewlineMove (startPos $ last bracketsAndSemisSpans) (doC+3)
+            }
+    ; return ()
+    }
+    
+setCol c (l,_) = (l,c)
+startPos info = (startLine info, startColumn info)
 -- add a way to debug
 -- handle options vs language pragma's (and add the one that ghc enables by default) (what about cabal file options??)
 -- add comment handling
@@ -61,11 +88,11 @@ main =
             -- todo: handle incorrect args
     }
 
-layoutExp :: String -> Int -> Int -> (Int, Int, Int, Int, String)
-layoutExp doc selRange selLen =
+layout' :: String -> Int -> Int -> {- (Int, Int, Int, Int, -} String -- )
+layout' doc selRange selLen =
   let modl = unsafeParse doc
-      doc' = showLayout $ execLayout doc $ applyMove (1,5) (1,6)
-  in  (selRange, selLen, 0, length doc', doc')
+      doc' = showLayout $ execLayout doc $ layoutGen modl
+  in  {- (selRange, selLen, 0, length doc', -} doc' -- )
   
 layout :: String -> Int -> Int -> (Int, Int, Int, Int, String)
 layout doc selRange selLen =
@@ -264,6 +291,9 @@ processExp (Do si stmts)  = trace (showSpanInfo si) $ map processStmt stmts
 processExp _             = []
 
 processStmt stmt = ann stmt
+
+traceM :: Monad m => String -> m ()
+traceM str = trace str $ return ()
 
 show1Decl TypeDecl{}         = "TypeDecl{}"       
 show1Decl TypeFamDecl{}      = "TypeFamDecl{}"    

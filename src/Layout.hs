@@ -1,26 +1,38 @@
 module Layout where
 
-import Language.Haskell.Lexer
+import Language.Haskell.Lexer hiding (Pos)
 import Control.Monad.State
 
 type Line = Int   -- 1-based
 type Column = Int -- 1-based
+type Pos = (Line, Column)
 
-type Layout = [((Line, Column), (Line, Column, String))] -- first line x column identifies token, second line x column is position in the layout
+type Layout = [(Pos, (Line, Column, String))] -- first line x column identifies token, second line x column is position in the layout
 
 type LayoutM = State Layout
 
 execLayout :: String -> LayoutM () -> Layout
 execLayout src m = execState m (initLayout src) 
 
-applyMove :: (Line, Column) -> (Line,Column) -> LayoutM ()
+applyMove :: Pos -> Pos -> LayoutM ()
 applyMove tgt newPos = modify $ layoutMove tgt newPos 
      
-
+applyNewlineMove :: Pos -> Column -> LayoutM ()
+applyNewlineMove tgt newCol = 
+ do { (oldLine,_) <- getLayoutPos tgt
+    ; modify $ layoutMove tgt (oldLine+1,newCol) 
+    }
 
 initLayout :: String -> Layout
 initLayout src = [ ((line pos, column pos), (line pos, column pos, tokenStr)) | (_,(pos,tokenStr)) <- lexerPass0 src ]
 
+getLayoutPos :: Pos -> LayoutM Pos
+getLayoutPos tgt =
+ do { layout <- get
+    ; case lookup tgt layout of
+        Nothing -> error $ "getLayout on non-existent token"++show tgt
+        Just (ln,cl, _) -> return (ln,cl)
+    }
 showLayout :: Layout -> String
 showLayout layout = showLayout' ""  1 1 layout
  where showLayout' revStr _  _  []                            = reverse revStr
@@ -57,19 +69,19 @@ dropUntil targetLn targetCol currentLn currentCol revStr | currentLn == targetLn
 
 
 
-layoutMove :: (Line, Column) -> (Line,Column) -> Layout -> Layout
+layoutMove :: Pos -> Pos -> Layout -> Layout
 layoutMove tgt _ [] =  error $ "Moving token that is not in layout "++show tgt
 layoutMove tgt newPos@(newLn, newCl) layout@(l@(orgPos,(tln, tcl, tstr)):ls) | orgPos /= tgt = l : layoutMove tgt newPos ls 
                                                                              | otherwise     =
   let deltaL = newLn - tln
       deltaC = newCl - tcl
-  in  tweakColsOnLine tln deltaC $  
-      tweakLines deltaL layout
+  in  tweakLines deltaL $ tweakColsOnLine tln deltaC layout   
+      
       
 tweakColsOnLine _        _      []                             = []
 tweakColsOnLine thisLine deltaC layout@((orgPos,(tln, tcl, tstr)):ls) | tln == thisLine = (orgPos,(tln,tcl+deltaC,tstr)) :
                                                                                           tweakColsOnLine thisLine deltaC ls
-                                                               | otherwise       = layout
+                                                                      | otherwise       = layout
 
 tweakLines _      []                             = []                                                                
 tweakLines deltaL ((orgPos,(tln, tcl, tstr)):ls) = (orgPos,(tln+deltaL, tcl, tstr)) : tweakLines deltaL ls
