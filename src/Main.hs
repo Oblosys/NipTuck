@@ -10,6 +10,8 @@ import System.Environment( getArgs )
 import Data.Generics
 import Control.Monad.State
 
+import Layout
+
 data X = X Int Y Y deriving (Data, Typeable)
 data Y = Y Int String deriving (Data, Typeable)
 

@@ -11,6 +11,8 @@ executable niptuck
                    base >= 4,
                    haskell-src-exts,
                    syb,
-                   mtl
+                   mtl,
+                   haskell-lexer
   ghc-options:     -Wall
+  other-modules:   Layout
 
