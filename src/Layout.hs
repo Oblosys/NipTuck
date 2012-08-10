@@ -7,7 +7,9 @@ type Line = Int   -- 1-based
 type Column = Int -- 1-based
 type Pos = (Line, Column)
 
+
 type Layout = [(Pos, (Line, Column, String))] -- first line x column identifies token, second line x column is position in the layout
+-- invariant: layout is sorted
 
 type LayoutM = State Layout
 
@@ -85,3 +87,15 @@ tweakColsOnLine thisLine deltaC layout@((orgPos,(tln, tcl, tstr)):ls) | tln == t
 
 tweakLines _      []                             = []                                                                
 tweakLines deltaL ((orgPos,(tln, tcl, tstr)):ls) = (orgPos,(tln+deltaL, tcl, tstr)) : tweakLines deltaL ls
+
+-- todo: this doesn't take positions in whitespace into account (check what happens when whitespace is removed)
+-- maybe get rid of whitespace tokens altogether?
+--todo: fix nudge so   stat|;  leads to stat|\n  ; instead of stat\n  |;    (| is cursor)  
+nudgePos :: Pos -> Layout -> Pos
+nudgePos (line,col) layout =
+  case break (\((l,c),(nl,nc,_)) -> (l,c) > (line,col)) layout of
+    (tks@(_:_), (_,(rl,rc,_)):_) -> let ((l,c),(nl,nc,tstr)) = last tks
+                      in -- trace (show (l,c,nl,nc,line-l, col-c)) 
+                         (line-l+nl,col-c+nc) `min` (rl,rc)   --- make sure not to extend beyond next token
+    _              -> error "TODO: make a nice error"
+-- todo: add case for missing token to the right

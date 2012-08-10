@@ -35,7 +35,7 @@ layoutDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
     ; case bracketsAndSemisSpans of
         [] -> return ()
         (doSpan:bracket:semisBracket) ->
-         do { traceM (concatMap showSpan bracketsAndSemisSpans) -- TODO: find nice combinators to do this stuff 
+         do { -- traceM (concatMap showSpan bracketsAndSemisSpans) -- TODO: find nice combinators to do this stuff 
             ; (obrackLine, _) <- getLayoutPos $ startPos bracket
             ; applyMove (startPos bracket) (doL, doC+3)
             ; applyMove (startPos . ann $ head stmts) (doL, doC + 5)
@@ -77,10 +77,10 @@ main =
          do { let offset = read offsetStr :: Int
                   len = read lengthStr :: Int
             ; doc <- getContents
-            ; let (newSelRange, newSelLen, replaceRange, replaceLen, replacementTxt) = layout doc offset len
+            ; let (newSelRange, newSelLen, replaceRange, replaceLen, replacementTxt) = layout' doc offset len
             
             ; putStrLn $ show newSelRange ++ " " ++ show newSelLen ++ " " ++
-                         show replaceRange ++ " "++show replaceLen
+                         show replaceRange ++ " "++ show replaceLen
             ; putStrLn $ replacementTxt
               -- add newline, since Eclipse adds one if last line does not end with it. 
               -- Now we can simply always remove the last character. 
@@ -88,11 +88,17 @@ main =
             -- todo: handle incorrect args
     }
 
-layout' :: String -> Int -> Int -> {- (Int, Int, Int, Int, -} String -- )
-layout' doc selRange selLen =
+layoutTest :: String -> String
+layoutTest doc = let (_,_,_,_,doc') = layout' doc 1 1 in doc'
+
+layout' :: String -> Int -> Int -> (Int, Int, Int, Int, String)
+layout' doc selOffset selLen =
   let modl = unsafeParse doc
-      doc' = showLayout $ execLayout doc $ layoutGen modl
-  in  {- (selRange, selLen, 0, length doc', -} doc' -- )
+      layout' = execLayout doc $ layoutGen modl
+      doc' = showLayout layout'
+      (selOffset', selLen') = nudgeRange' doc doc' layout' selOffset selLen 
+  in  trace (show layout') $
+      (selOffset', selLen', 0, length doc, doc' )
   
 layout :: String -> Int -> Int -> (Int, Int, Int, Int, String)
 layout doc selRange selLen =
@@ -111,7 +117,7 @@ layout doc selRange selLen =
                     (declRange',declLen') = nudgeRange nips (declRange, declLen)
                     (selRange',selLen') = nudgeRange nips (selRange, selLen)
                     
-                in  trace (show nips ++ "\n" ++ doc') $ 
+                in  -- trace (show nips ++ "\n" ++ doc') $ 
                     (selRange', selLen', declRange, declLen, select (declRange', declLen') doc')
               else (selRange, selLen, 0, 0, "") -- don't do anything
         _      -> (selRange, selLen, 0,0, "")   -- don't do anything
@@ -166,11 +172,19 @@ nudgeOffset (Nip p d : nips) offset =
 -- ...   p..   -> ...p
 
 
+
+
+nudgeRange' :: String -> String -> Layout -> Int -> Int -> (Int,Int)
+nudgeRange' doc doc' layout offset len = posSpanToRange doc' (nudgePos startPos layout) (nudgePos endPos layout)
+ where (startPos,endPos) = rangeToSpan doc offset len 
+
+ 
 alignRangess :: [[(Int, Int)]] -> [Nip]
 alignRangess rangeLines =
   let rangeCols = transpose rangeLines
       colWidths  = init $ map (maximum . map snd) rangeCols -- last col is elt after aligned elts
-  in  trace (show colWidths ++ show rangeLines) $ concatMap (alignRanges colWidths) rangeLines 
+  in  --trace (show colWidths ++ show rangeLines) $ 
+      concatMap (alignRanges colWidths) rangeLines 
 
 -- column widths is one shorter than ranges
 alignRanges :: [Int] -> [(Int, Int)] -> [Nip]
@@ -194,7 +208,11 @@ rangeToSpan doc offset len = (getPos 0 offset lineLengths, getPos 0 (offset+len)
 
 
 spanToRange :: String -> SrcSpan -> (Int, Int)
-spanToRange doc (SrcSpan _ sl sc el ec) = (offsetS, offsetE - offsetS)
+spanToRange doc (SrcSpan _ sl sc el ec) = posSpanToRange doc (sl,sc) (el,ec)
+
+
+posSpanToRange :: String -> (Int, Int) -> (Int, Int) -> (Int, Int)
+posSpanToRange doc (sl, sc) (el, ec) = (offsetS, offsetE - offsetS)
  where offsetS = getOffset sl sc  
        offsetE = getOffset el ec 
        lineLengths = map length $ lines doc
@@ -287,7 +305,7 @@ processRhs (GuardedRhss _ guardedrhss) = concatMap processGuardedRhs guardedrhss
 
 processGuardedRhs (GuardedRhs _ _ exp) = processExp exp
 
-processExp (Do si stmts)  = trace (showSpanInfo si) $ map processStmt stmts
+processExp (Do si stmts)  = map processStmt stmts
 processExp _             = []
 
 processStmt stmt = ann stmt
