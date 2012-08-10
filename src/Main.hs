@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 module Main where
 
 import Language.Haskell.Exts.Annotated hiding (layout)
@@ -6,6 +7,20 @@ import Data.List
 import Debug.Trace
 import System.IO
 import System.Environment( getArgs )
+import Data.Generics
+import Control.Monad.State
+
+data X = X Int Y Y deriving (Data, Typeable)
+data Y = Y Int String deriving (Data, Typeable)
+
+anX = X 2 (Y 3 "d") (Y 1 "ee")
+
+tzt :: (Data a) => a ->String
+tzt x = execState ((everything (>>) $ return () `mkQ` f1 `extQ` f2) x) ""
+ where f1 :: String -> State String ()
+       f1 str = modify (++"s")
+       f2 :: Y -> State String ()
+       f2 y = modify (++"f2")
 
 
 -- add a way to debug

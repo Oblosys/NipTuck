@@ -9,6 +9,8 @@ executable niptuck
   main-is:         Main.hs
   build-depends:   
                    base >= 4,
-                   haskell-src-exts
+                   haskell-src-exts,
+                   syb,
+                   mtl
   ghc-options:     -Wall
 
