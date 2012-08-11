@@ -200,10 +200,13 @@ getNamePatternSpansMatch (Match _ nm pats rh _) = annSp nm : map annSp pats ++ [
 getNamePatternSpansMatch (InfixMatch _ pl nm prs rh _) = [annSp pl, annSp nm] ++ map annSp prs ++ [annSp rh]
 
 rangeToSpan :: String -> Int -> Int -> ((Int,Int),(Int,Int))
-rangeToSpan doc offset len = (getPos 0 offset lineLengths, getPos 0 (offset+len) lineLengths)
- where lineLengths = map length $ lines doc
-       getPos l o []           = error "wrong offset"
-       getPos l o (lln : llns) = if o > lln then getPos (l+1) (o-lln-1) llns else (l+1, o+1)
+rangeToSpan doc offset len | offset < 0 = error "rangeToSpan: range offset < 0" -- checks to spot errors in 
+                           | len < 0    = error "rangeToSpan: range length < 0" -- other algorithms
+                           | otherwise =
+  (getPos "range offset" 0 offset lineLengths, getPos "range length" 0 (offset+len) lineLengths)
+   where lineLengths = map length $ lines doc
+         getPos nm l o []           = error $ nm ++ " too large"
+         getPos nm l o (lln : llns) = if o > lln then getPos nm (l+1) (o-lln-1) llns else (l+1, o+1)
 -- maybe use scanl
 
 
