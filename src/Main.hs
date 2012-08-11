@@ -31,7 +31,9 @@ formatExp e@Do{} = formatDo e
 formatExp exp    = return ()
 
 
--- note maybe make it impossible to access lines and columns from span info, since these cannot be used to compute moves
+-- because formatter is applied top down, it works with nested do's (since the column is taken from the do keyword)
+
+-- note: maybe make it impossible to access lines and columns from span info, since these cannot be used to compute moves
 -- (if token has moved already, pos from span is no longer correct) These errors will be tricky to detect.
 formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
  do { (doL,doC) <- getLayoutPos $ startPos doInfo
@@ -39,16 +41,15 @@ formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
         [] -> return ()
         (doSpan:bracket:semisBracket) ->
          do { -- traceM (concatMap showSpan bracketsAndSemisSpans) -- TODO: find nice combinators to do this stuff 
-            ; (obrackLine, _) <- getLayoutPos $ startPos bracket
-            ; applyMove (startPos bracket) (doL, doC+3)
-            ; applyMove (startPos . ann $ head stmts) (doL, doC + 5)
-            ; sequence_ [ do { applyNewlineMove (startPos tk) (doC+3) 
-                             ; (semiLine, _) <- getLayoutPos $ startPos tk
-                             ; applyMove (startPos $ ann stmt) (semiLine, doC + 5)
+            ; applyLayout (startPos bracket) 0 1
+            ; let indent = doC+3 - 1 -- to indent to column c, we need c-1 spaces
+            ; applyLayout (startPos . ann $ head stmts) 0 1
+            ; sequence_ [ do { applyLayout (startPos tk) 1 indent 
+                             ; applyLayout (startPos $ ann stmt) 0 1
                              }
                         | (tk,stmt) <- zip (init semisBracket) (tail stmts) 
                         ]                                    
-            ; applyNewlineMove (startPos $ last bracketsAndSemisSpans) (doC+3)
+            ; applyLayout (startPos $ last bracketsAndSemisSpans) 1 indent
             }
     ; return ()
     }

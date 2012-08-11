@@ -12,7 +12,8 @@ executable niptuck
                    haskell-src-exts,
                    syb,
                    mtl,
-                   haskell-lexer
+                   haskell-lexer,
+                   containers
   ghc-options:     -Wall
   other-modules:   Layout
 
