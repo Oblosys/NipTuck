@@ -27,13 +27,13 @@ formatDecl :: Decl SrcSpanInfo -> LayoutM ()
 formatDecl decl = return ()
 
 formatExp :: Exp SrcSpanInfo -> LayoutM ()
-formatExp e@Do{} = layoutDo e
+formatExp e@Do{} = formatDo e
 formatExp exp    = return ()
 
 
 -- note maybe make it impossible to access lines and columns from span info, since these cannot be used to compute moves
 -- (if token has moved already, pos from span is no longer correct) These errors will be tricky to detect.
-layoutDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
+formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
  do { (doL,doC) <- getLayoutPos $ startPos doInfo
     ; case bracketsAndSemisSpans of
         [] -> return ()
@@ -102,7 +102,7 @@ formatEnclosingDecl doc selOffset selLen =
         Nothing -> (selOffset, selLen, 0, 0, "") -- not in a declaration, don't do anything
         Just decl ->
           let (declOffset, declLen) = spanToRange doc . srcInfoSpan $ ann decl
-              formattedLayout = execLayout doc $ formatGen modl -- todo: only format selected decl, instead of everything
+              formattedLayout = execLayout doc $ formatGen decl
               doc' = showLayout formattedLayout
               (declOffset', declLen') = nudgeRange' doc doc' formattedLayout declOffset declLen
               (selOffset', selLen') = nudgeRange' doc doc' formattedLayout selOffset selLen 
