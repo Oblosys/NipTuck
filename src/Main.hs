@@ -207,6 +207,9 @@ rangeToSpan doc offset len = (getPos 0 offset lineLengths, getPos 0 (offset+len)
 -- maybe use scanl
 
 
+-- ranges are 0-based
+-- spans are non-inclusive (i.e. [start, end>)
+
 spanToRange :: String -> SrcSpan -> (Int, Int)
 spanToRange doc (SrcSpan _ sl sc el ec) = posSpanToRange doc (sl,sc) (el,ec)
 
@@ -216,8 +219,13 @@ posSpanToRange doc (sl, sc) (el, ec) = (offsetS, offsetE - offsetS)
  where offsetS = getOffset sl sc  
        offsetE = getOffset el ec 
        lineLengths = map length $ lines doc
-       getOffset l c = l - 1 + sum (take (l - 1) lineLengths) + c -1
-                    -- l - 1 is for the newlines
+       getOffset l c | l < 1     = error $ "posSpanToRange: line index < 1"
+                     | otherwise =
+         case splitAt (l-1) lineLengths of 
+                (_,         [])     -> error "posSpanToRange: line index too large"
+                (preceding, line:_) | c < 1      -> error $ "posSpanToRange: column index < 1" 
+                                    | c > line+1 -> error $ "posSpanToRange: column index too large"
+                            | otherwise -> sum preceding + l - 1 + c - 1 -- l - 1 is for the newlines
 
 select :: (Int, Int) -> String -> String
 select (offset, len) doc = take len $ drop offset doc
