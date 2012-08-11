@@ -93,7 +93,7 @@ tweakLines deltaL ((orgPos,(tln, tcl, tstr)):ls) = (orgPos,(tln+deltaL, tcl, tst
 -- maybe get rid of whitespace tokens altogether?
 --todo: fix nudge so   stat|;  leads to stat|\n  ; instead of stat\n  |;    (| is cursor)  
 nudgePos :: Pos -> Layout -> Pos
-nudgePos _          _      = error "nudgePos: empty layout"
+nudgePos _          []                    = error "nudgePos: empty layout"
 nudgePos (line,col) layout@(firstToken:_) =
   case break (\((l,c),_) -> (l,c) > (line,col)) layout of
     (tks@(_:_), nextTokens) -> 
