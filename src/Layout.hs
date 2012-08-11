@@ -8,6 +8,7 @@ type Column = Int -- 1-based
 type Pos = (Line, Column)
 
 
+-- todo: maybe this can be relative after all?
 type Layout = [(Pos, (Line, Column, String))] -- first line x column identifies token, second line x column is position in the layout
 -- invariant: layout is sorted
 
@@ -92,10 +93,16 @@ tweakLines deltaL ((orgPos,(tln, tcl, tstr)):ls) = (orgPos,(tln+deltaL, tcl, tst
 -- maybe get rid of whitespace tokens altogether?
 --todo: fix nudge so   stat|;  leads to stat|\n  ; instead of stat\n  |;    (| is cursor)  
 nudgePos :: Pos -> Layout -> Pos
-nudgePos (line,col) layout =
-  case break (\((l,c),(nl,nc,_)) -> (l,c) > (line,col)) layout of
-    (tks@(_:_), (_,(rl,rc,_)):_) -> let ((l,c),(nl,nc,tstr)) = last tks
-                      in -- trace (show (l,c,nl,nc,line-l, col-c)) 
-                         (line-l+nl,col-c+nc) `min` (rl,rc)   --- make sure not to extend beyond next token
-    _              -> error "TODO: make a nice error"
+nudgePos _          _      = error "nudgePos: empty layout"
+nudgePos (line,col) layout@(firstToken:_) =
+  case break (\((l,c),_) -> (l,c) > (line,col)) layout of
+    (tks@(_:_), nextTokens) -> 
+      let ((l,c),(nl,nc,tstr)) = last tks
+          bound = case nextTokens of
+                    (_,(rl,rc,_)):_ -> (rl,rc) -- make sure not to extend beyond next token
+                    []              -> (nl,nc+length tstr)   -- or past the end of the current one if there is no next
+                    
+      in -- trace (show (l,c,nl,nc,line-l, col-c)) 
+            (line-l+nl,col-c+nc) `min` bound   
+    _   -> error $ "nudgePos: position " ++ show (line,col) ++ " is before first token: " ++ show firstToken
 -- todo: add case for missing token to the right
