@@ -1,0 +1,1 @@
+ghci src/Main.hs -hide-package monads-tf -isrc
