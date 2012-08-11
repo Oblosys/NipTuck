@@ -12,20 +12,23 @@ import Control.Monad.State
 
 import Layout
 
-data X = X Int Y Y deriving (Data, Typeable)
-data Y = Y Int String deriving (Data, Typeable)
 
-anX = X 2 (Y 3 "d") (Y 1 "ee")
+-- todo 
+-- at least make eclipse show output instead of "Could not load".
+-- also show stderror in error notification
+-- format do keeps adding newlines
 
-layoutGen :: (Data a) => a -> LayoutM () 
-layoutGen x = ((everything (>>) $ return () `mkQ` layoutDecl `extQ` layoutExp) x) 
+test = do { putStrLn "" ; return ()}
 
-layoutDecl :: Decl SrcSpanInfo -> LayoutM ()
-layoutDecl decl = return ()
+formatGen :: (Data a) => a -> LayoutM () 
+formatGen x = ((everything (>>) $ return () `mkQ` formatDecl `extQ` formatExp) x) 
 
-layoutExp :: Exp SrcSpanInfo -> LayoutM ()
-layoutExp e@Do{} = layoutDo e
-layoutExp exp    = return ()
+formatDecl :: Decl SrcSpanInfo -> LayoutM ()
+formatDecl decl = return ()
+
+formatExp :: Exp SrcSpanInfo -> LayoutM ()
+formatExp e@Do{} = layoutDo e
+formatExp exp    = return ()
 
 
 -- note maybe make it impossible to access lines and columns from span info, since these cannot be used to compute moves
@@ -77,7 +80,7 @@ main =
          do { let offset = read offsetStr :: Int
                   len = read lengthStr :: Int
             ; doc <- getContents
-            ; let (newSelRange, newSelLen, replaceRange, replaceLen, replacementTxt) = layout' doc offset len
+            ; let (newSelRange, newSelLen, replaceRange, replaceLen, replacementTxt) = formatEnclosingDecl doc offset len
             
             ; putStrLn $ show newSelRange ++ " " ++ show newSelLen ++ " " ++
                          show replaceRange ++ " "++ show replaceLen
@@ -88,20 +91,28 @@ main =
             -- todo: handle incorrect args
     }
 
-layoutTest :: String -> String
-layoutTest doc = let (_,_,_,_,doc') = layout' doc 1 1 in doc'
+formatTest :: String -> String
+formatTest doc = let (_,_,_,_,doc') = formatEnclosingDecl doc 1 1 in doc'
 
-layout' :: String -> Int -> Int -> (Int, Int, Int, Int, String)
-layout' doc selOffset selLen =
-  let modl = unsafeParse doc
-      layout' = execLayout doc $ layoutGen modl
-      doc' = showLayout layout'
-      (selOffset', selLen') = nudgeRange' doc doc' layout' selOffset selLen 
-  in  trace (show layout') $
-      (selOffset', selLen', 0, length doc, doc' )
+formatEnclosingDecl :: String -> Int -> Int -> (Int, Int, Int, Int, String)
+formatEnclosingDecl doc selOffset selLen =
+  let modl = unsafeParse doc -- todo: handle error here
+      ((lin,col),_) = rangeToSpan doc selOffset selLen
+  in  case getDeclForSpanModule lin col modl of
+        Nothing -> (selOffset, selLen, 0, 0, "") -- not in a declaration, don't do anything
+        Just decl ->
+          let (declOffset, declLen) = spanToRange doc . srcInfoSpan $ ann decl
+              formattedLayout = execLayout doc $ formatGen modl -- todo: only format selected decl, instead of everything
+              doc' = showLayout formattedLayout
+              (declOffset', declLen') = nudgeRange' doc doc' formattedLayout declOffset declLen
+              (selOffset', selLen') = nudgeRange' doc doc' formattedLayout selOffset selLen 
+          in  --trace (show (declOffset, declLen) ++ "\n" ++ show doc ++ show doc' ++ "\n" ++ show formattedLayout) $
+              (selOffset', selLen', declOffset, declLen, select (declOffset', declLen') doc' )
+              -- For EclipseFP it is better to only replace the change decl, instead of entire source,
+              -- since undo will select the replaced part for some reason.
   
-layout :: String -> Int -> Int -> (Int, Int, Int, Int, String)
-layout doc selRange selLen =
+layoutOld :: String -> Int -> Int -> (Int, Int, Int, Int, String)
+layoutOld doc selRange selLen =
   let ((line,col),_) = rangeToSpan doc selRange selLen 
       modl = unsafeParse doc
   in  case getDeclForSpanModule line col modl of
