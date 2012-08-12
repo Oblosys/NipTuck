@@ -49,12 +49,15 @@ getLayoutPos' tgt ln cl ((pos,(ns,ss,tkStr)):tokens) =
   
 -- todo: what are Layout and Indent? can they appear in the token stream?
 initLayout :: String -> Layout
-initLayout src = Map.fromList . processTokens 1 1 . map snd . filter ((Whitespace /=) . fst) $ lexerPass0 src
+initLayout src = Map.fromList . processTokens 1 1 . filter ((Whitespace /=) . fst) $ lexerPass0 src
  where processTokens _      _      []                   = []
-       processTokens prevLn prevCl ((pos,tkStr):tokens) =
+       processTokens prevLn prevCl ((tkType,(pos,tkStrRaw)):tokens) =
          let (tkLn,tkCl) = (line pos, column pos)
              (newlines, spaces) | tkLn == prevLn = (0, tkCl-prevCl)
                                 | otherwise      = (tkLn-prevLn, tkCl-1)
+             tkStr = case tkType of Comment -> case reverse tkStrRaw of ('\n':_) -> init tkStrRaw
+                                                                        _        -> tkStrRaw
+                                    _       -> tkStrRaw
          in ((tkLn, tkCl), (newlines, spaces, tkStr)) : 
             processTokens tkLn (tkCl + length tkStr) tokens
   

@@ -9,11 +9,15 @@ import System.IO
 import System.Environment( getArgs )
 import Data.Generics
 import Control.Monad.State
+import qualified Data.Map as Map -- to be removed when we have correct primitives in Layout
+import Data.Map (Map)
 
 import Layout
 
 
 -- todo 
+-- Check for tabs!
+-- handle block comments and check/fix line comment hack
 -- at least make eclipse show output instead of "Could not load".
 -- also show stderror in error notification
 -- format do keeps adding newlines
@@ -24,11 +28,12 @@ formatGen :: (Data a) => a -> LayoutM ()
 formatGen x = ((everything (>>) $ return () `mkQ` formatDecl `extQ` formatExp) x) 
 
 formatDecl :: Decl SrcSpanInfo -> LayoutM ()
+formatDecl d@FunBind{} = formatFunBind d
 formatDecl decl = return ()
 
 formatExp :: Exp SrcSpanInfo -> LayoutM ()
-formatExp e@Do{} = formatDo e
-formatExp exp    = return ()
+formatExp e@Do{}      = formatDo e
+formatExp exp         = return ()
 
 
 -- because formatter is applied top down, it works with nested do's (since the column is taken from the do keyword)
@@ -53,9 +58,48 @@ formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
             }
     ; return ()
     }
+
+formatFunBind (FunBind _ ms) = 
+ do { let alignSpanss = map getNamePatternSpansMatch ms
+    --; traceM $ show alignSpanss -- name arg1 .. argn rhs
+    ; sameLines <- sequence [ sameLine l r | (l,_,r) <- alignSpanss ]
+    ; when (and sameLines) $ 
+ do { widthss <- sequence [ sequence [ getWidth tk nextTk | (tk,nextTk) <- zip ms (tail $ ms ++ [r]) ]
+                          | (l, ms, r) <- alignSpanss
+                          ] 
+    --; traceM $ show widthss
+    ; let colWidths = map maximum $ transpose widthss
+    --; traceM $ show colWidths
+    ; let fillss = zipWith (zipWith (-)) (repeat colWidths) widthss -- nr of spaces needed to be as wide as widest arg in colum
+    --; traceM $ show fillss
+    ; sequence_ [ do { applyLayout arg 0 1
+                     ; sequence_ [ applyLayout tk 0 (fill + 1) | (tk,fill) <- zip (args++[rh]) fills] 
+                     } 
+                | ((_,arg:args,rh), fills )<- zip alignSpanss fillss]
+    ; return ()
+    }}
     
-setCol c (l,_) = (l,c)
-startPos info = (startLine info, startColumn info)
+-- todo name
+getNamePatternSpansMatch :: Match SrcSpanInfo -> (Pos, [Pos], Pos)
+getNamePatternSpansMatch (Match _ nm pats rh _)        = (annPos nm, map annPos pats, annPos rh)
+getNamePatternSpansMatch (InfixMatch _ pl nm prs rh _) = (annPos pl, annPos nm : map annPos prs , annPos rh)
+
+-- return true if p2 starts on the same line as p1
+sameLine :: Pos -> Pos -> LayoutM Bool
+sameLine p1 p2 = do { (l1,_) <- getLayoutPos p1
+                    ; (l2,_) <- getLayoutPos p2
+                    ; return $ l1 == l2
+                    }
+                    
+-- precondition p1 and p2 are on the same line 
+getWidth :: Pos -> Pos -> LayoutM Int
+getWidth p1 p2 = do { (_,c1) <- getLayoutPos p1
+                    ; (_,c2) <- getLayoutPos p2
+                    ; layout <- get
+                    ; case Map.lookup p2 layout of
+                        Just (_,ss,_) -> return $ c2 - ss - c1
+                        Nothing       -> error $ "getWidth: lookup on non-existent token: "++show p2
+                    }
 -- add a way to debug
 -- handle options vs language pragma's (and add the one that ghc enables by default) (what about cabal file options??)
 -- add comment handling
@@ -95,6 +139,9 @@ main =
 formatTest :: String -> String
 formatTest doc = let (_,_,_,_,doc') = formatEnclosingDecl doc 1 1 in doc'
 
+-- note that due to the way nudge works, no layout can be added to the front or the back of the formatted selection
+-- (e.g. ">f x = 1<" -> "\n\n   >f x = 1<   ")
+-- (back is tricky anyway, as we keep preceding whitespace. 
 formatEnclosingDecl :: String -> Int -> Int -> (Int, Int, Int, Int, String)
 formatEnclosingDecl doc selOffset selLen =
   let modl = unsafeParse doc -- todo: handle error here
@@ -119,8 +166,8 @@ layoutOld doc selRange selLen =
   in  case getDeclForSpanModule line col modl of
         Just (FunBind srcInfo ms) -> 
           let declSpan = srcInfoSpan srcInfo
-              alignSpanss = map getNamePatternSpansMatch ms
-          in  if all (sameLine) alignSpanss then -- only do this if everything before = is on same line as =
+              alignSpanss = map getNamePatternSpansMatch' ms
+          in  if all sameLine' alignSpanss then -- only do this if everything before = is on same line as =
                 let namePatternRangess = map (map $ spanToRange doc) alignSpanss
                     nips = alignRangess namePatternRangess  -- todo: alignment goes wrong if one match has a guard and one doesn't
                     doc' = applyNips doc nips
@@ -137,10 +184,13 @@ layoutOld doc selRange selLen =
 annSp :: Annotated ast => ast SrcSpanInfo -> SrcSpan
 annSp = srcInfoSpan . ann
 
+annPos :: Annotated ast => ast SrcSpanInfo -> Pos
+annPos = startPos . srcInfoSpan . ann
+
 -- start of first and start of last must be on same line
-sameLine :: [SrcSpan] -> Bool
-sameLine []    = True
-sameLine spans = srcSpanStartLine (head spans) == srcSpanStartLine (last spans) 
+sameLine' :: [SrcSpan] -> Bool
+sameLine' []    = True
+sameLine' spans = srcSpanStartLine (head spans) == srcSpanStartLine (last spans) 
 
 getSpanHeight :: SrcSpan -> Int
 getSpanHeight (SrcSpan _ sl _ el _) = el - sl + 1
@@ -207,9 +257,12 @@ alignRanges (w:colWidths) ((o,_):ranges@((o',_):_)) =
   ++ alignRanges colWidths ranges
 alignRanges ws os = error $ "alignRanges: incompatible nr of widths and ranges: "++show ws ++ show os 
 
-getNamePatternSpansMatch :: Match SrcSpanInfo -> [SrcSpan]
-getNamePatternSpansMatch (Match _ nm pats rh _) = annSp nm : map annSp pats ++ [annSp rh]
-getNamePatternSpansMatch (InfixMatch _ pl nm prs rh _) = [annSp pl, annSp nm] ++ map annSp prs ++ [annSp rh]
+getNamePatternSpansMatch' :: Match SrcSpanInfo -> [SrcSpan]
+getNamePatternSpansMatch' (Match _ nm pats rh _) = annSp nm : map annSp pats ++ [annSp rh]
+getNamePatternSpansMatch' (InfixMatch _ pl nm prs rh _) = [annSp pl, annSp nm] ++ map annSp prs ++ [annSp rh]
+
+
+startPos info = (startLine info, startColumn info)
 
 rangeToSpan :: String -> Int -> Int -> ((Int,Int),(Int,Int))
 rangeToSpan doc offset len | offset < 0 = error "rangeToSpan: range offset < 0" -- checks to spot errors in 
