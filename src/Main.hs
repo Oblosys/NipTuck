@@ -17,7 +17,10 @@ import Layout
 
 -- todo 
 -- Check for tabs!
--- handle block comments and check/fix line comment hack
+-- check/fix block & line comments
+-- currently line comments may be formatted so tokens appear after them
+-- solution: take commentStart and comment together and on setting layout, check preceding token for --
+-- (or we can add an extra field to the Layout type)
 -- at least make eclipse show output instead of "Could not load".
 -- also show stderror in error notification
 -- format do keeps adding newlines

@@ -22,6 +22,7 @@ type LayoutM = State Layout
 execLayout :: String -> LayoutM () -> Layout
 execLayout src m = execState m (initLayout src) 
 
+-- check if preceding tk is line comment if newline == 0
 applyLayout :: Pos -> Newlines -> Spaces -> LayoutM ()
 applyLayout tgt newlines spaces = modify $ Map.adjust (\(_,_,tkStr) -> (newlines, spaces, tkStr)) tgt  
      
@@ -58,8 +59,12 @@ initLayout src = Map.fromList . processTokens 1 1 . filter ((Whitespace /=) . fs
              tkStr = case tkType of Comment -> case reverse tkStrRaw of ('\n':_) -> init tkStrRaw
                                                                         _        -> tkStrRaw
                                     _       -> tkStrRaw
-         in ((tkLn, tkCl), (newlines, spaces, tkStr)) : 
-            processTokens tkLn (tkCl + length tkStr) tokens
+         in case tkType of 
+              NestedComment -> let commentLine:commentLines = lines tkStrRaw -- string is not empty
+                               in  ((tkLn, tkCl), (newlines, spaces, commentLine)) :
+                                   [ ((l,1),(1,0,comml)) | (l,comml) <- zip [tkLn+1..] commentLines]
+              _             -> [((tkLn, tkCl), (newlines, spaces, tkStr)) ] 
+            ++ processTokens tkLn (tkCl + length tkStr) tokens
   
 --  [ ((line pos, column pos), (line pos, column pos, tokenStr)) | (_,(pos,tokenStr)) <- lexerPass0 src ]
 
