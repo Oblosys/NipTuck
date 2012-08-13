@@ -11,6 +11,7 @@ import Data.Generics
 import Control.Monad.State
 import qualified Data.Map as Map -- to be removed when we have correct primitives in Layout
 import Data.Map (Map)
+import Control.Monad
 
 import Layout
 
@@ -31,12 +32,37 @@ formatGen :: (Data a) => a -> LayoutM ()
 formatGen x = ((everything (>>) $ return () `mkQ` formatDecl `extQ` formatExp) x) 
 
 formatDecl :: Decl SrcSpanInfo -> LayoutM ()
-formatDecl d@FunBind{} = formatFunBind d
-formatDecl decl = return ()
+formatDecl d@DataDecl{} = formatDataDecl d
+formatDecl d@FunBind{}  = formatFunBind d
+formatDecl decl         = return ()
 
 formatExp :: Exp SrcSpanInfo -> LayoutM ()
-formatExp e@Do{}      = formatDo e
-formatExp exp         = return ()
+formatExp e@Do{} = formatDo e
+formatExp exp    = return ()
+
+
+
+--DataDecl l (DataOrNew l) (Maybe (Context l)) (DeclHead l) [QualConDecl l] (Maybe (Deriving l))  
+whenJust :: Monad m => Maybe x -> (x -> m ()) -> m()
+whenJust mx f = maybe (return ()) f mx
+
+-- todo: maybe check if data decl is single line, and if so, don't align |'s with =
+formatDataDecl (DataDecl (SrcSpanInfo _ (eq:ors)) _ mContext declHead conDecls mDeriving) =
+ do { whenJust  mContext $ \context ->
+        applyLayout (annPos context) 0 1
+    ; applyLayout (annPos declHead) 0 1
+    
+    ; applyLayout (startPos eq) 0 1
+    ; (_,eqC) <- getLayoutPos (startPos eq)
+    ; sequence_ [ applyLayout (startPos or) 1 (eqC - 1) | or <- ors] -- todo applyIndent which subtracts the 1
+    ; sequence_ [ applyLayout (annPos conDecl) 0 1 | conDecl <- conDecls]
+    ; whenJust  mDeriving $ \der ->
+       do { applyLayout (annPos der) 0 1
+          ; case der of
+               Deriving _ (ih:_) -> applyLayout (annPos ih) 0 1
+               _                 -> return ()
+          }
+    }
 
 
 -- because formatter is applied top down, it works with nested do's (since the column is taken from the do keyword)
@@ -139,8 +165,8 @@ main =
             -- todo: handle incorrect args
     }
 
-formatTest :: String -> String
-formatTest doc = let (_,_,_,_,doc') = formatEnclosingDecl doc 1 1 in doc'
+formatTest :: String -> IO ()
+formatTest doc = let (_,_,_,_,doc') = formatEnclosingDecl doc 1 1 in putStrLn doc'
 
 -- note that due to the way nudge works, no layout can be added to the front or the back of the formatted selection
 -- (e.g. ">f x = 1<" -> "\n\n   >f x = 1<   ")
