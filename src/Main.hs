@@ -25,7 +25,10 @@ import Layout
 -- at least make eclipse show output instead of "Could not load".
 -- also show stderror in error notification
 -- format do keeps adding newlines
-
+t2 x = case x of
+     Just _ -> "a"
+     Nothing -> "b"
+    ++ "7"
 test = do { putStrLn "" ; return ()}
 
 formatGen :: (Data a) => a -> LayoutM () 
@@ -33,12 +36,13 @@ formatGen x = ((everything (>>) $ return () `mkQ` formatDecl `extQ` formatExp) x
 
 formatDecl :: Decl SrcSpanInfo -> LayoutM ()
 formatDecl d@DataDecl{} = formatDataDecl d
-formatDecl d@FunBind{}  = formatFunBind d
+--formatDecl d@FunBind{}  = formatFunBind d
 formatDecl decl         = return ()
 
 formatExp :: Exp SrcSpanInfo -> LayoutM ()
-formatExp e@Do{} = formatDo e
-formatExp exp    = return ()
+formatExp e@Do{}   = formatDo e
+formatExp e@Case{} = formatCase e
+formatExp exp      = return ()
 
 
 
@@ -67,6 +71,7 @@ formatDataDecl (DataDecl (SrcSpanInfo _ (eq:ors)) _ mContext declHead conDecls m
 
 -- because formatter is applied top down, it works with nested do's (since the column is taken from the do keyword)
 
+-- todo: handle multiline statements, and modify indentation in a smart way
 -- note: maybe make it impossible to access lines and columns from span info, since these cannot be used to compute moves
 -- (if token has moved already, pos from span is no longer correct) These errors will be tricky to detect.
 formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
@@ -88,6 +93,30 @@ formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
     ; return ()
     }
 
+-- todo: handle multiline statements, and modify indentation in a smart way (more important than for do, because
+-- we don't use brackets) 
+-- todo: take guards into account
+formatCase (Case (SrcSpanInfo _ (case_:of_:_)) exp alts) =
+ do { applyLayout (annPos exp) 0 1
+    ; applyLayout (startPos of_) 0 1
+    ; (_,caseC) <- getLayoutPos (startPos case_)
+    
+    ; let patArrowSpans = [(annPos alt, annPos galts) | alt@(Alt _ _ galts _) <- alts ]
+    ; patWidths <-  sequence [ getWidth tk nextTk | (tk,nextTk) <- patArrowSpans ]
+    ; let maxWidth = maximum patWidths
+    ; let fills = map (maxWidth-) patWidths
+    ; sequence_ [ do { applyLayout pat 1 (caseC + 2 - 1)
+                     ; applyLayout arrow 0 (fill+1)
+                     } | (fill,(pat,arrow)) <- zip fills patArrowSpans]
+    
+    ; sequence_ [ case galts of
+                    UnGuardedAlt _ exp -> applyLayout (annPos exp) 0 1
+                    _                  -> return ()
+                | alt@(Alt _ _ galts _) <- alts ] 
+    }
+
+
+-- todo: take guards into account
 formatFunBind (FunBind _ ms) = 
  do { let alignSpanss = map getNamePatternSpansMatch ms
     --; traceM $ show alignSpanss -- name arg1 .. argn rhs
@@ -108,7 +137,7 @@ formatFunBind (FunBind _ ms) =
     ; return ()
     }}
     
--- todo name
+-- todo name, these are poss, not spans
 getNamePatternSpansMatch :: Match SrcSpanInfo -> (Pos, [Pos], Pos)
 getNamePatternSpansMatch (Match _ nm pats rh _)        = (annPos nm, map annPos pats, annPos rh)
 getNamePatternSpansMatch (InfixMatch _ pl nm prs rh _) = (annPos pl, annPos nm : map annPos prs , annPos rh)
@@ -310,9 +339,10 @@ rangeToSpan doc offset len | offset < 0 = error "rangeToSpan: range offset < 0" 
 spanToRange :: String -> SrcSpan -> (Int, Int)
 spanToRange doc (SrcSpan _ sl sc el ec) = posSpanToRange doc (sl,sc) (el,ec)
 
-
+-- todo bug: handle (l,c) (l',0), where l' may be (nr of lines+1)
 posSpanToRange :: String -> (Int, Int) -> (Int, Int) -> (Int, Int)
-posSpanToRange doc (sl, sc) (el, ec) = (offsetS, offsetE - offsetS)
+posSpanToRange doc (sl, sc) (el, ec) = -- trace (show (doc, sl,sc,el,ec)) $ 
+                                       (offsetS, offsetE - offsetS)
  where offsetS = getOffset sl sc  
        offsetE = getOffset el ec 
        lineLengths = map length $ lines doc

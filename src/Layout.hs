@@ -25,13 +25,6 @@ execLayout src m = execState m (initLayout src)
 -- check if preceding tk is line comment if newline == 0
 applyLayout :: Pos -> Newlines -> Spaces -> LayoutM ()
 applyLayout tgt newlines spaces = modify $ Map.adjust (\(_,_,tkStr) -> (newlines, spaces, tkStr)) tgt  
-     
-applyNewlineMove :: Pos -> Int -> LayoutM ()
-applyNewlineMove tgt newCol = undefined {- 
- do { (oldLine,_) <- getLayoutPos tgt
-    ; modify $ layoutMove tgt (oldLine+1,newCol) 
-    }
--}
 
 getLayoutPos :: Pos -> LayoutM Pos
 getLayoutPos tgt =
