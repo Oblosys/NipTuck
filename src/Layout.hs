@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeSynonymInstances, FlexibleInstances, UndecidableInstances #-}
 module Layout where
 
 import Language.Haskell.Lexer hiding (Pos)
@@ -5,6 +6,8 @@ import Control.Monad.State
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Debug.Trace
+import Language.Haskell.Exts.SrcLoc
+import Language.Haskell.Exts.Annotated.Syntax
 
 type Newlines = Int
 type Spaces = Int
@@ -22,14 +25,35 @@ type LayoutM = State Layout
 execLayout :: String -> LayoutM () -> Layout
 execLayout src m = execState m (initLayout src) 
 
--- check if preceding tk is line comment if newline == 0
-applyLayout :: Pos -> Newlines -> Spaces -> LayoutM ()
-applyLayout tgt newlines spaces = modify $ Map.adjust (\(_,_,tkStr) -> (newlines, spaces, tkStr)) tgt  
 
-getLayoutPos :: Pos -> LayoutM Pos
+class TokenPos x where
+  tokenPos :: x -> Pos
+
+instance TokenPos Pos where
+  tokenPos = id
+  
+-- explicit instances (instead of using SrcInfo) to get better error messages
+instance TokenPos SrcLoc where
+  tokenPos x = (srcLine x, srcColumn x)
+
+-- todo: do we really need FlexibleInstances & UndecidableInstances for these instances?
+instance TokenPos SrcSpan where
+  tokenPos x = (srcSpanStartLine x, srcSpanStartColumn x)
+
+instance TokenPos SrcSpanInfo where
+  tokenPos x = tokenPos (srcInfoSpan x)
+
+instance Annotated ast => TokenPos (ast SrcSpanInfo) where
+  tokenPos x = tokenPos $ ann x
+  
+-- check if preceding tk is line comment if newline == 0
+applyLayout :: TokenPos p => p -> Newlines -> Spaces -> LayoutM ()
+applyLayout tgt newlines spaces = modify $ Map.adjust (\(_,_,tkStr) -> (newlines, spaces, tkStr)) (tokenPos tgt)  
+
+getLayoutPos :: TokenPos p => p -> LayoutM Pos
 getLayoutPos tgt =
  do { layout <- get
-    ; return $ getLayoutPos' tgt 1 1 $ Map.toList layout  
+    ; return $ getLayoutPos' (tokenPos tgt) 1 1 $ Map.toList layout  
     }
 
 -- todo: name, and make function f = getLayoutPos' tgt 1 1

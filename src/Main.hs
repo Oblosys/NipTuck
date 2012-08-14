@@ -53,17 +53,17 @@ whenJust mx f = maybe (return ()) f mx
 -- todo: maybe check if data decl is single line, and if so, don't align |'s with =
 formatDataDecl (DataDecl (SrcSpanInfo _ (eq:ors)) _ mContext declHead conDecls mDeriving) =
  do { whenJust  mContext $ \context ->
-        applyLayout (annPos context) 0 1
-    ; applyLayout (annPos declHead) 0 1
+        applyLayout context 0 1
+    ; applyLayout declHead 0 1
     
-    ; applyLayout (startPos eq) 0 1
-    ; (_,eqC) <- getLayoutPos (startPos eq)
-    ; sequence_ [ applyLayout (startPos or) 1 (eqC - 1) | or <- ors] -- todo applyIndent which subtracts the 1
-    ; sequence_ [ applyLayout (annPos conDecl) 0 1 | conDecl <- conDecls]
+    ; applyLayout eq 0 1
+    ; (_,eqC) <- getLayoutPos eq
+    ; sequence_ [ applyLayout or 1 (eqC - 1) | or <- ors] -- todo applyIndent which subtracts the 1
+    ; sequence_ [ applyLayout conDecl 0 1 | conDecl <- conDecls]
     ; whenJust  mDeriving $ \der ->
-       do { applyLayout (annPos der) 0 1
+       do { applyLayout der 0 1
           ; case der of
-               Deriving _ (ih:_) -> applyLayout (annPos ih) 0 1
+               Deriving _ (ih:_) -> applyLayout ih 0 1
                _                 -> return ()
           }
     }
@@ -80,15 +80,15 @@ formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
         [] -> return ()
         (doSpan:bracket:semisBracket) ->
          do { -- traceM (concatMap showSpan bracketsAndSemisSpans) -- TODO: find nice combinators to do this stuff 
-            ; applyLayout (startPos bracket) 0 1
+            ; applyLayout bracket 0 1
             ; let indent = doC+3 - 1 -- to indent to column c, we need c-1 spaces
-            ; applyLayout (startPos . ann $ head stmts) 0 1
-            ; sequence_ [ do { applyLayout (startPos tk) 1 indent 
-                             ; applyLayout (startPos $ ann stmt) 0 1
+            ; applyLayout (head stmts) 0 1
+            ; sequence_ [ do { applyLayout tk 1 indent 
+                             ; applyLayout stmt 0 1
                              }
                         | (tk,stmt) <- zip (init semisBracket) (tail stmts) 
                         ]                                    
-            ; applyLayout (startPos $ last bracketsAndSemisSpans) 1 indent
+            ; applyLayout (last bracketsAndSemisSpans) 1 indent
             }
     ; return ()
     }
@@ -97,9 +97,9 @@ formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
 -- we don't use brackets) 
 -- todo: take guards into account
 formatCase (Case (SrcSpanInfo _ (case_:of_:_)) exp alts) =
- do { applyLayout (annPos exp) 0 1
-    ; applyLayout (startPos of_) 0 1
-    ; (_,caseC) <- getLayoutPos (startPos case_)
+ do { applyLayout exp 0 1
+    ; applyLayout of_ 0 1
+    ; (_,caseC) <- getLayoutPos case_
     
     ; let patArrowSpans = [(annPos alt, annPos galts) | alt@(Alt _ _ galts _) <- alts ]
     ; patWidths <-  sequence [ getWidth tk nextTk | (tk,nextTk) <- patArrowSpans ]
