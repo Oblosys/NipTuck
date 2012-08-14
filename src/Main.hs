@@ -17,6 +17,7 @@ import Layout
 
 
 -- todo 
+-- bug: Leenclub Main.mkLenderRootView causes non-existent token errors
 -- add unit and regression tests
 -- respect empty lines in do/case sequences
 -- Check for tabs!
@@ -213,7 +214,9 @@ formatEnclosingDecl doc selOffset selLen =
               (declOffset', declLen') = nudgeRange' doc doc' formattedLayout declOffset declLen
               (selOffset', selLen') = nudgeRange' doc doc' formattedLayout selOffset selLen 
           in  --trace (show (declOffset, declLen) ++ "\n" ++ show doc ++ show doc' ++ "\n" ++ show formattedLayout) $
-              (selOffset', selLen', declOffset, declLen, select (declOffset', declLen') doc' )
+              (selOffset'+declOffset-declOffset', selLen', declOffset, declLen, select (declOffset', declLen') doc' )
+              -- note: we adjust for the difference between declOffset and declOffset', because leading layout of the declaration
+              -- may have lines with trailing spaces, which may affect the part of the source that is not formatted.
               -- For EclipseFP it is better to only replace the change decl, instead of entire source,
               -- since undo will select the replaced part for some reason.
   
