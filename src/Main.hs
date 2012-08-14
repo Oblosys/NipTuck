@@ -12,7 +12,7 @@ import Control.Monad.State
 import qualified Data.Map as Map -- to be removed when we have correct primitives in Layout
 import Data.Map (Map)
 import Control.Monad
-
+import Data.List.Split
 import Layout
 
 
@@ -326,7 +326,7 @@ rangeToSpan doc offset len | offset < 0 = error "rangeToSpan: range offset < 0" 
                            | len < 0    = error "rangeToSpan: range length < 0" -- other algorithms
                            | otherwise =
   (getPos "range offset" 0 offset lineLengths, getPos "range length" 0 (offset+len) lineLengths)
-   where lineLengths = map length $ lines doc
+   where lineLengths = map length $ splitOn "\n" doc
          getPos nm l o []           = error $ nm ++ " too large"
          getPos nm l o (lln : llns) = if o > lln then getPos nm (l+1) (o-lln-1) llns else (l+1, o+1)
 -- maybe use scanl
@@ -344,14 +344,15 @@ posSpanToRange doc (sl, sc) (el, ec) = -- trace (show (doc, sl,sc,el,ec)) $
                                        (offsetS, offsetE - offsetS)
  where offsetS = getOffset sl sc  
        offsetE = getOffset el ec 
-       lineLengths = map length $ lines doc
+       lineLengths = map length $ splitOn "\n" doc
        getOffset l c | l < 1     = error $ "posSpanToRange: line index < 1"
                      | otherwise =
          case splitAt (l-1) lineLengths of 
-                (_,         [])     -> error "posSpanToRange: line index too large"
-                (preceding, line:_) | c < 1      -> error $ "posSpanToRange: column index < 1" 
+                (_, [])                          -> error "posSpanToRange: line index too large"
+                (preceding, line:_) | c < 0      -> error $ "posSpanToRange: column index < 0" 
                                     | c > line+1 -> error $ "posSpanToRange: column index too large"
-                            | otherwise -> sum preceding + l - 1 + c - 1 -- l - 1 is for the newlines
+                                    | otherwise -> sum preceding + l - 1 -- l - 1 is for the newlines 
+                                                   + c - (if c /= 0 then 1 else 0) -- (l,0) is the same as (l,1)
 
 select :: (Int, Int) -> String -> String
 select (offset, len) doc = take len $ drop offset doc

@@ -13,7 +13,8 @@ executable niptuck
                    syb,
                    mtl,
                    haskell-lexer,
-                   containers
+                   containers,
+                   split
   ghc-options:     -Wall
   other-modules:   Layout
 
