@@ -17,6 +17,7 @@ import Layout
 
 
 -- todo 
+-- add unit and regression tests
 -- Check for tabs!
 -- check/fix block & line comments
 -- currently line comments may be formatted so tokens appear after them
@@ -29,14 +30,17 @@ t2 x = case x of
      Just _ -> "a"
      Nothing -> "b"
     ++ "7"
-test = do { putStrLn "" ; return ()}
+test = do { putStrLn $ "" ++
+                            ""
+          ; return ()
+          }
 
 formatGen :: (Data a) => a -> LayoutM () 
 formatGen x = ((everything (>>) $ return () `mkQ` formatDecl `extQ` formatExp) x) 
 
 formatDecl :: Decl SrcSpanInfo -> LayoutM ()
 formatDecl d@DataDecl{} = formatDataDecl d
---formatDecl d@FunBind{}  = formatFunBind d
+formatDecl d@FunBind{}  = formatFunBind d
 formatDecl decl         = return ()
 
 formatExp :: Exp SrcSpanInfo -> LayoutM ()
@@ -75,16 +79,20 @@ formatDataDecl (DataDecl (SrcSpanInfo _ (eq:ors)) _ mContext declHead conDecls m
 -- note: maybe make it impossible to access lines and columns from span info, since these cannot be used to compute moves
 -- (if token has moved already, pos from span is no longer correct) These errors will be tricky to detect.
 formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
- do { (doL,doC) <- getLayoutPos $ startPos doInfo
+ do { (_,doC) <- getLayoutPos doInfo
     ; case bracketsAndSemisSpans of
         [] -> return ()
-        (doSpan:bracket:semisBracket) ->
+        (_:bracket:semisBracket) ->
          do { -- traceM (concatMap showSpan bracketsAndSemisSpans) -- TODO: find nice combinators to do this stuff 
+            ; (_,refC) <- getLayoutPos (head stmts)
             ; applyLayout bracket 0 1
             ; let indent = doC+3 - 1 -- to indent to column c, we need c-1 spaces
-            ; applyLayout (head stmts) 0 1
+            ; let lastToken = srcSpanEnd doInfo
+            --; traceM $ show lastToken
+            ; applyLayoutAndReindent refC (head stmts) lastToken 0 1
             ; sequence_ [ do { applyLayout tk 1 indent 
-                             ; applyLayout stmt 0 1
+                             ; (_,refC) <- getLayoutPos stmt
+                             ; applyLayoutAndReindent refC stmt lastToken 0 1
                              }
                         | (tk,stmt) <- zip (init semisBracket) (tail stmts) 
                         ]                                    
@@ -142,22 +150,6 @@ getNamePatternSpansMatch :: Match SrcSpanInfo -> (Pos, [Pos], Pos)
 getNamePatternSpansMatch (Match _ nm pats rh _)        = (annPos nm, map annPos pats, annPos rh)
 getNamePatternSpansMatch (InfixMatch _ pl nm prs rh _) = (annPos pl, annPos nm : map annPos prs , annPos rh)
 
--- return true if p2 starts on the same line as p1
-sameLine :: Pos -> Pos -> LayoutM Bool
-sameLine p1 p2 = do { (l1,_) <- getLayoutPos p1
-                    ; (l2,_) <- getLayoutPos p2
-                    ; return $ l1 == l2
-                    }
-                    
--- precondition p1 and p2 are on the same line 
-getWidth :: Pos -> Pos -> LayoutM Int
-getWidth p1 p2 = do { (_,c1) <- getLayoutPos p1
-                    ; (_,c2) <- getLayoutPos p2
-                    ; layout <- get
-                    ; case Map.lookup p2 layout of
-                        Just (_,ss,_) -> return $ c2 - ss - c1
-                        Nothing       -> error $ "getWidth: lookup on non-existent token: "++show p2
-                    }
 -- add a way to debug
 -- handle options vs language pragma's (and add the one that ghc enables by default) (what about cabal file options??)
 -- add comment handling
@@ -445,8 +437,6 @@ processExp _             = []
 
 processStmt stmt = ann stmt
 
-traceM :: Monad m => String -> m ()
-traceM str = trace str $ return ()
 
 show1Decl TypeDecl{}         = "TypeDecl{}"       
 show1Decl TypeFamDecl{}      = "TypeFamDecl{}"    

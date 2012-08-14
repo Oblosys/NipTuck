@@ -14,17 +14,20 @@ type Spaces = Int
 type Pos = (Int,Int)
 
 
-
 -- TODO: layout model trims lines with trailing whitespace. Do we need to extend the model?
 -- todo: this also holds for whitespace at end of file. 
 type Layout = Map Pos (Newlines, Spaces, String) -- first Pos identifies the token
 -- invariant: layout is sorted
+
+type LayoutList = [(Pos, (Newlines, Spaces, String))]
 
 type LayoutM = State Layout
 
 execLayout :: String -> LayoutM () -> Layout
 execLayout src m = execState m (initLayout src) 
 
+traceM :: Monad m => String -> m ()
+traceM str = trace str $ return ()
 
 class TokenPos x where
   tokenPos :: x -> Pos
@@ -55,16 +58,87 @@ getLayoutPos tgt =
  do { layout <- get
     ; return $ getLayoutPos' (tokenPos tgt) 1 1 $ Map.toList layout  
     }
+    
+getTokenLayout :: TokenPos p => p -> LayoutM (Newlines,Spaces)
+getTokenLayout tgt =
+ do { layout <- get
+    ; return $ case Map.lookup (tokenPos tgt) layout of
+                 Nothing -> error $ "getTokenLayout on non-existent token"++show (tokenPos tgt)
+                 Just (newlines,spaces,_) -> (newlines,spaces)
+    }
+ 
+-- modify layout for target and adjust following lines so they remain at the same column relative to
+-- the target's column. We need to pass the reference column, because tgt may already have moved
+-- before applying this layout
+-- todo: maybe use referencePos instead of column because it is easier. This will allow confusion with tgt though. 
+-- todo: maybe we only want to do this if the next line is at least at target's column. (this is a sign
+-- that the layout is not related to the target)
+applyLayoutAndReindent referenceCl tgt lastTk newlines spaces =
+ do { --traceM $ "reindent: "++show (tokenPos tgt) ++ " " ++ show lastTk ++ " " ++ show newlines ++ " " ++ show spaces
+    ; applyLayout tgt newlines spaces
+    ; (newLn, newCl) <- getLayoutPos tgt
+    ; tokensPossToIndent <- getTokensPossBetween (newLn+1,0) (tokenPos lastTk)
+    ; --traceM $ "shifting "++show (newCl-oldCl)++": " ++ show tokensPossToIndent
+    ; shiftLines (newCl-referenceCl) tokensPossToIndent
+    }
+    
+shiftLines _     [] = return ()
+shiftLines shift ((orgPos,(currentLn, currentCl)):tokens) =
+ do { shiftColumn shift orgPos
+    ; shiftLines' currentLn tokens
+    }
+ where shiftLines' _    []                                       = return ()
+       shiftLines' line ((orgPos,(currentLn, currentCl)):tokens) =
+         if currentLn == line 
+         then shiftLines' line tokens
+         else do { shiftColumn shift orgPos
+                 ; shiftLines' currentLn tokens
+                 }
+                 
+shiftColumn shift tgt = do { (newlines, spaces) <- getTokenLayout tgt
+                           ; applyLayout tgt newlines ((spaces + shift) `max` 1)
+                           }
 
 -- todo: name, and make function f = getLayoutPos' tgt 1 1
-getLayoutPos' tgt ln cl [] = error $ "getLayout on non-existent token"++show tgt
-getLayoutPos' tgt ln cl ((pos,(ns,ss,tkStr)):tokens) =
+getLayoutPos' tgt ln cl layout = case lookup tgt $ getLayoutPoss ln cl layout of
+                             Nothing -> error $ "getLayoutPos' on non-existent token"++show tgt
+                             Just pos -> pos
+  
+-- compute current positions for all tokens
+getLayoutPoss :: Int -> Int -> LayoutList -> [(Pos,Pos)]
+getLayoutPoss _ _ [] = []
+getLayoutPoss ln cl ((pos,(ns,ss,tkStr)):tokens) =
   let ln' = ln+ns
       cl' = ss + if ns == 0 then cl else 1
-  in  if  pos == tgt 
-      then (ln',cl')
-      else getLayoutPos' tgt ln' (cl'+length tkStr) tokens
+  in  (pos, (ln',cl')) : getLayoutPoss ln' (cl'+length tkStr) tokens
   
+  
+
+-- includes end
+getTokensPossBetween :: Pos -> Pos -> LayoutM [(Pos,Pos)]
+getTokensPossBetween start end = do { layout <- get
+                                ; let tokenPoss = getLayoutPoss 1 1 $ Map.toList layout
+                                ; return $ filter (\(p,_) -> (start <= p && p <= end)) $ tokenPoss
+                                }
+
+
+-- return true if p2 starts on the same line as p1
+sameLine :: Pos -> Pos -> LayoutM Bool
+sameLine p1 p2 = do { (l1,_) <- getLayoutPos p1
+                    ; (l2,_) <- getLayoutPos p2
+                    ; return $ l1 == l2
+                    }
+                    
+-- precondition p1 and p2 are on the same line 
+getWidth :: Pos -> Pos -> LayoutM Int
+getWidth p1 p2 = do { (_,c1) <- getLayoutPos p1
+                    ; (_,c2) <- getLayoutPos p2
+                    ; layout <- get
+                    ; case Map.lookup p2 layout of
+                        Just (_,ss,_) -> return $ c2 - ss - c1
+                        Nothing       -> error $ "getWidth: lookup on non-existent token: "++show p2
+                    }
+
 -- todo: what are Layout and Indent? can they appear in the token stream?
 initLayout :: String -> Layout
 initLayout src = Map.fromList . processTokens 1 1 . filter ((Whitespace /=) . fst) $ lexerPass0 src
