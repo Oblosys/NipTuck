@@ -105,7 +105,14 @@ formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
 -- we don't use brackets) 
 -- todo: take guards into account
 formatCase (Case (SrcSpanInfo _ (case_:of_:_)) exp alts) =
- do { applyLayout exp 0 1
+ do { rhsRefCols <- -- this is not very nice
+        sequence [ case galts of
+                     UnGuardedAlt _ exp -> fmap snd $ getLayoutPos exp
+                     _                  -> return 0 -- not used
+                 | alt@(Alt _ _ galts _) <- alts ] 
+ 
+ 
+    ; applyLayout exp 0 1
     ; applyLayout of_ 0 1
     ; (_,caseC) <- getLayoutPos case_
     
@@ -118,9 +125,9 @@ formatCase (Case (SrcSpanInfo _ (case_:of_:_)) exp alts) =
                      } | (fill,(pat,arrow)) <- zip fills patArrowSpans]
     
     ; sequence_ [ case galts of
-                    UnGuardedAlt _ exp -> applyLayout (annPos exp) 0 1
+                    UnGuardedAlt inf exp -> applyLayoutAndReindent refC (annPos exp) (srcSpanEnd . srcInfoSpan $ inf) 0 1
                     _                  -> return ()
-                | alt@(Alt _ _ galts _) <- alts ] 
+                | (refC, alt@(Alt _ _ galts _)) <- zip rhsRefCols alts ] 
     }
 
 
