@@ -18,6 +18,7 @@ import Layout
 
 -- todo 
 -- add unit and regression tests
+-- respect empty lines in do/case sequences
 -- Check for tabs!
 -- check/fix block & line comments
 -- currently line comments may be formatted so tokens appear after them

@@ -76,9 +76,10 @@ getTokenLayout tgt =
 applyLayoutAndReindent referenceCl tgt lastTk newlines spaces =
  do { --traceM $ "reindent: "++show (tokenPos tgt) ++ " " ++ show lastTk ++ " " ++ show newlines ++ " " ++ show spaces
     ; applyLayout tgt newlines spaces
-    ; (newLn, newCl) <- getLayoutPos tgt
-    ; tokensPossToIndent <- getTokensPossBetween (newLn+1,0) (tokenPos lastTk)
-    ; --traceM $ "shifting "++show (newCl-oldCl)++": " ++ show tokensPossToIndent
+    ; (_, newCl) <- getLayoutPos tgt
+    ; let (tgtLn,_) = tokenPos tgt
+    ; tokensPossToIndent <- getTokensPossBetween (tgtLn+1,0) (tokenPos lastTk) -- NB we select the tokens based on original positions
+    ; --traceM $ "shifting "++show (newCl-referenceCl)++": " ++ show tokensPossToIndent
     ; shiftLines (newCl-referenceCl) tokensPossToIndent
     }
     
@@ -117,9 +118,9 @@ getLayoutPoss ln cl ((pos,(ns,ss,tkStr)):tokens) =
 -- includes end
 getTokensPossBetween :: Pos -> Pos -> LayoutM [(Pos,Pos)]
 getTokensPossBetween start end = do { layout <- get
-                                ; let tokenPoss = getLayoutPoss 1 1 $ Map.toList layout
-                                ; return $ filter (\(p,_) -> (start <= p && p <= end)) $ tokenPoss
-                                }
+                                    ; let tokenPoss = getLayoutPoss 1 1 $ Map.toList layout
+                                    ; return $ filter (\(p,_) -> (start <= p && p <= end)) $ tokenPoss
+                                    }
 
 
 -- return true if p2 starts on the same line as p1
