@@ -295,8 +295,10 @@ nudgeOffset (Nip p d : nips) offset =
 
 
 nudgeRange' :: String -> String -> Layout -> Int -> Int -> (Int,Int)
-nudgeRange' doc doc' layout offset len = posSpanToRange doc' (nudgePos startPos layout) (nudgePos endPos layout)
+nudgeRange' doc doc' layout offset len = posSpanToRange doc' startPos' endPos'
  where (startPos,endPos) = rangeToSpan doc offset len 
+       startPos' = nudgePos startPos layout
+       endPos' = nudgePos endPos layout
 
  
 alignRangess :: [[(Int, Int)]] -> [Nip]
@@ -325,7 +327,7 @@ startPos info = (startLine info, startColumn info)
 rangeToSpan :: String -> Int -> Int -> ((Int,Int),(Int,Int))
 rangeToSpan doc offset len | offset < 0 = error "rangeToSpan: range offset < 0" -- checks to spot errors in 
                            | len < 0    = error "rangeToSpan: range length < 0" -- other algorithms
-                           | otherwise =
+                           | otherwise  = -- trace ("rangeToSpan " ++ show doc ++ " " ++ show offset ++ " " ++ show len) $
   (getPos "range offset" 0 offset lineLengths, getPos "range length" 0 (offset+len) lineLengths)
    where lineLengths = map length $ splitOn "\n" doc
          getPos nm l o []           = error $ nm ++ " too large"
@@ -340,16 +342,18 @@ spanToRange :: String -> SrcSpan -> (Int, Int)
 spanToRange doc s@(SrcSpan _ sl sc el ec) = --trace ("spanToRange "++show doc++" ("++show s++")") $
                                             posSpanToRange doc (sl,sc) (el,ec)
 
--- todo bug: handle (l,c) (l',0), where l' may be (nr of lines+1)
+-- (line, 0) is annoying.  
 posSpanToRange :: String -> (Int, Int) -> (Int, Int) -> (Int, Int)
-posSpanToRange doc (sl, sc) (el, ec) = --trace (show (doc, sl,sc,el,ec)) $ 
+posSpanToRange doc (sl, sc) (el, ec) = trace ("posSpanToRange " ++ show doc ++ " " ++ show (sl,sc)++" "++show (el,ec)) $ 
                                        (offsetS, offsetE - offsetS)
  where offsetS = getOffset sl sc  
        offsetE = getOffset el ec 
        lineLengths = map length $ splitOn "\n" doc
-       getOffset l 0 | l <= 1                      = error $ "posSpanToRange: column 0 not defined for l = "++show l
-                     | l <= 1 + length lineLengths = sum (take (l-1) lineLengths) + l - 1
-                     | otherwise                   = error "posSpanToRange: line index too large"
+       nrOfLines = length lineLengths
+       getOffset l 0 | l <= 1             = error $ "posSpanToRange: column 0 not defined for l = "++show l
+                     | l <= nrOfLines + 1 = sum (take (l-1) lineLengths) + l - 1 -
+                                            (if l == nrOfLines + 1 then 1 else 0) -- the last line doesn't have a \n
+                     | otherwise          = error "posSpanToRange: line index too large"
        getOffset l c | l < 1     = error $ "posSpanToRange: line index < 1"
                      | otherwise =
          case splitAt (l-1) lineLengths of 
