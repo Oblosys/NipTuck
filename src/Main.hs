@@ -205,12 +205,16 @@ formatEnclosingDecl doc selOffset selLen =
   in  case getDeclForSpanModule lin col modl of
         Nothing -> (selOffset, selLen, 0, 0, "") -- not in a declaration, don't do anything
         Just decl ->
-          let (declOffset, declLen) = spanToRange doc . srcInfoSpan $ ann decl
+          let (declOffset, declLenWS) = spanToRange doc . srcInfoSpan $ ann decl
+              declLen = declLenWS - length (takeWhile (`elem`" \n") $ reverse $ select (declOffset, declLenWS) doc)
               formattedLayout = execLayout doc $ formatGen decl
               doc' = showLayout formattedLayout
               (declOffset', declLen') = nudgeRange doc doc' formattedLayout declOffset declLen
               (selOffset', selLen') = nudgeRange doc doc' formattedLayout selOffset selLen 
-          in  --trace (show (declOffset, declLen) ++ "\ndoc:" ++ doc ++ "\ndoc'"++ doc' ++ "\n" ++ show formattedLayout) $
+          in  --trace (show (declOffset,declLenWS) ++ " " ++ show declLen) $
+              --trace ("Formatted Layout:'\n"++show formattedLayout++"\n") $
+              --trace ("Doc':\n"++doc'++"\n") $
+              --trace (show (declOffset, declLen) ++ "\ndoc:" ++ doc ++ "\ndoc'"++ doc' ++ "\n" ++ show formattedLayout) $
               (selOffset'+declOffset-declOffset', selLen', declOffset, declLen, select (declOffset', declLen') doc' )
               -- note: we adjust for the difference between declOffset and declOffset', because leading layout of the declaration
               -- may have lines with trailing spaces, which may affect the part of the source that is not formatted.
@@ -227,7 +231,8 @@ annPos = startPos . srcInfoSpan . ann
 
 
 nudgeRange :: String -> String -> Layout -> Int -> Int -> (Int,Int)
-nudgeRange doc doc' layout offset len = posSpanToRange doc' startPos' endPos'
+nudgeRange doc doc' layout offset len = --trace ("nudgeRange " ++ show offset ++ " " ++ show len) $
+                                        posSpanToRange doc' startPos' endPos'
  where (startPos,endPos) = rangeToSpan doc offset len 
        startPos' = nudgePos startPos layout
        endPos' = nudgePos endPos layout
@@ -255,7 +260,7 @@ spanToRange doc s@(SrcSpan _ sl sc el ec) = --trace ("spanToRange "++show doc++"
 
 -- (line, 0) is annoying.  
 posSpanToRange :: String -> (Int, Int) -> (Int, Int) -> (Int, Int)
-posSpanToRange doc (sl, sc) (el, ec) = trace ("posSpanToRange " ++ show doc ++ " " ++ show (sl,sc)++" "++show (el,ec)) $ 
+posSpanToRange doc (sl, sc) (el, ec) = --trace ("posSpanToRange " ++ show doc ++ " " ++ show (sl,sc)++" "++show (el,ec)) $ 
                                        (offsetS, offsetE - offsetS)
  where offsetS = getOffset sl sc  
        offsetE = getOffset el ec 
