@@ -17,7 +17,7 @@ import Layout
 
 
 -- todo 
--- bug: Leenclub Main.mkLenderRootView causes non-existent token errors
+-- bug: TemplateHaskell splices cannot be lexer by Haskell.Language.Lexer. Detecting this is not trivial.
 -- add unit and regression tests
 -- respect empty lines in do/case sequences
 -- Check for tabs!
@@ -25,9 +25,6 @@ import Layout
 -- currently line comments may be formatted so tokens appear after them
 -- solution: take commentStart and comment together and on setting layout, check preceding token for --
 -- (or we can add an extra field to the Layout type)
--- at least make eclipse show output instead of "Could not load".
--- also show stderror in error notification
--- format do keeps adding newlines
 t2 x = case x of
      Just _ -> "a"
      Nothing -> "b"
@@ -64,7 +61,7 @@ formatDataDecl (DataDecl (SrcSpanInfo _ (eq:ors)) _ mContext declHead conDecls m
     
     ; applyLayout eq 0 1
     ; (_,eqC) <- getLayoutPos eq
-    ; sequence_ [ applyLayout or 1 (eqC - 1) | or <- ors] -- todo applyIndent which subtracts the 1
+    ; sequence_ [ applyNewlineIndent eqC or | or <- ors] 
     ; sequence_ [ applyLayout conDecl 0 1 | conDecl <- conDecls]
     ; whenJust  mDeriving $ \der ->
        do { applyLayout der 0 1
@@ -88,21 +85,21 @@ formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
          do { -- traceM (concatMap showSpan bracketsAndSemisSpans) -- TODO: find nice combinators to do this stuff 
             ; (_,refC) <- getLayoutPos (head stmts)
             ; applyLayout bracket 0 1
-            ; let indent = doC+3 - 1 -- to indent to column c, we need c-1 spaces
+            
             ; let lastToken = srcSpanEnd doInfo
             --; traceM $ show lastToken
             ; applyLayoutAndReindent refC (head stmts) lastToken 0 1
-            ; sequence_ [ do { applyLayout tk 1 indent 
+            ; sequence_ [ do { applyNewlineIndent (doC+3) tk 
                              ; (_,refC) <- getLayoutPos stmt
                              ; applyLayoutAndReindent refC stmt lastToken 0 1
                              }
                         | (tk,stmt) <- zip (init semisBracket) (tail stmts) 
                         ]                                    
-            ; applyLayout (last bracketsAndSemisSpans) 1 indent
+            ; applyNewlineIndent (doC+3) (last bracketsAndSemisSpans)
             }
     ; return ()
     }
-
+    
 -- todo: handle multiline statements, and modify indentation in a smart way (more important than for do, because
 -- we don't use brackets) 
 -- todo: take guards into account
@@ -122,7 +119,7 @@ formatCase (Case (SrcSpanInfo _ (case_:of_:_)) exp alts) =
     ; patWidths <-  sequence [ getWidth tk nextTk | (tk,nextTk) <- patArrowSpans ]
     ; let maxWidth = maximum patWidths
     ; let fills = map (maxWidth-) patWidths
-    ; sequence_ [ do { applyLayout pat 1 (caseC + 2 - 1)
+    ; sequence_ [ do { applyNewlineIndent (caseC + 2) pat
                      ; applyLayout arrow 0 (fill+1)
                      } | (fill,(pat,arrow)) <- zip fills patArrowSpans]
     
@@ -213,7 +210,7 @@ formatEnclosingDecl doc selOffset selLen =
               doc' = showLayout formattedLayout
               (declOffset', declLen') = nudgeRange' doc doc' formattedLayout declOffset declLen
               (selOffset', selLen') = nudgeRange' doc doc' formattedLayout selOffset selLen 
-          in  --trace (show (declOffset, declLen) ++ "\n" ++ show doc ++ show doc' ++ "\n" ++ show formattedLayout) $
+          in  --trace (show (declOffset, declLen) ++ "\ndoc:" ++ doc ++ "\ndoc'"++ doc' ++ "\n" ++ show formattedLayout) $
               (selOffset'+declOffset-declOffset', selLen', declOffset, declLen, select (declOffset', declLen') doc' )
               -- note: we adjust for the difference between declOffset and declOffset', because leading layout of the declaration
               -- may have lines with trailing spaces, which may affect the part of the source that is not formatted.
@@ -344,7 +341,7 @@ spanToRange doc (SrcSpan _ sl sc el ec) = posSpanToRange doc (sl,sc) (el,ec)
 
 -- todo bug: handle (l,c) (l',0), where l' may be (nr of lines+1)
 posSpanToRange :: String -> (Int, Int) -> (Int, Int) -> (Int, Int)
-posSpanToRange doc (sl, sc) (el, ec) = -- trace (show (doc, sl,sc,el,ec)) $ 
+posSpanToRange doc (sl, sc) (el, ec) = --trace (show (doc, sl,sc,el,ec)) $ 
                                        (offsetS, offsetE - offsetS)
  where offsetS = getOffset sl sc  
        offsetE = getOffset el ec 

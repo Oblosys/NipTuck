@@ -11,7 +11,9 @@ import Language.Haskell.Exts.Annotated.Syntax
 
 type Newlines = Int
 type Spaces = Int
-type Pos = (Int,Int)
+type Line = Int
+type Column = Int
+type Pos = (Line,Column)
 
 
 -- TODO: layout model trims lines with trailing whitespace. Do we need to extend the model?
@@ -48,10 +50,18 @@ instance TokenPos SrcSpanInfo where
 
 instance Annotated ast => TokenPos (ast SrcSpanInfo) where
   tokenPos x = tokenPos $ ann x
-  
+
+-- todo: switch args 
 -- check if preceding tk is line comment if newline == 0
 applyLayout :: TokenPos p => p -> Newlines -> Spaces -> LayoutM ()
 applyLayout tgt newlines spaces = modify $ Map.adjust (\(_,_,tkStr) -> (newlines, spaces, tkStr)) (tokenPos tgt)  
+
+-- Put tk on a new line and indent to column col. Preserve any newlines in front of tk.
+applyNewlineIndent :: TokenPos p => Column -> p -> LayoutM ()
+applyNewlineIndent col tk =
+ do { (nwlns, _) <- getTokenLayout tk  
+    ; applyLayout tk (nwlns `max` 1) (col-1) -- to end up in column col, we need to add col - 1 spaces
+    }
 
 getLayoutPos :: TokenPos p => p -> LayoutM Pos
 getLayoutPos tgt =
@@ -214,9 +224,10 @@ tweakLines deltaL ((orgPos,(tln, tcl, tstr)):ls) = (orgPos,(tln+deltaL, tcl, tst
 -- maybe get rid of whitespace tokens altogether?
 --todo: fix nudge so   stat|;  leads to stat|\n  ; instead of stat\n  |;    (| is cursor)  
 nudgePos :: Pos -> Layout -> Pos
-nudgePos pos layout = nudgePos' layout pos $ Map.toList layout
+nudgePos pos layout = --trace ("nudgePos "++show pos ++ " (" ++ show layout ++ ")") $ 
+                      nudgePos' layout pos $ Map.toList layout
 
-nudgePos' layout (line,col) [] = (-1, -1)
+nudgePos' layout (line,col) [] = error "nudgePos' on empty list"
 nudgePos' layout (line,col) (((orgLn, orgCol),(ns,ss,tkStr)):tokens) =
   if (line,col) > (orgLn,orgCol+length tkStr) 
   then nudgePos' layout (line,col) tokens 
