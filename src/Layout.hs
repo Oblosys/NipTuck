@@ -5,6 +5,7 @@ import Language.Haskell.Lexer hiding (Pos)
 import Control.Monad.State
 import qualified Data.Map as Map
 import Data.Map (Map)
+import Data.Char
 import Debug.Trace
 import Language.Haskell.Exts.SrcLoc
 import Language.Haskell.Exts.Annotated.Syntax
@@ -152,8 +153,9 @@ getWidth p1 p2 = do { (_,c1) <- getLayoutPos p1
 
 -- todo: what are Layout and Indent? can they appear in the token stream?
 initLayout :: String -> Layout
-initLayout src = Map.fromList . processTokens 1 1 . filter ((Whitespace /=) . fst) $ lexerPass0 src
- where processTokens _      _      []                   = []
+initLayout src = Map.fromList . processTokens 1 1 . filter ((Whitespace /=) . fst) $ lexerPass0 $ patchSrc src
+ where 
+       processTokens _      _      []                   = []
        processTokens prevLn prevCl ((tkType,(pos,tkStrRaw)):tokens) =
          let (tkLn,tkCl) = (line pos, column pos)
              (newlines, spaces) | tkLn == prevLn = (0, tkCl-prevCl)
@@ -170,6 +172,13 @@ initLayout src = Map.fromList . processTokens 1 1 . filter ((Whitespace /=) . fs
   
 --  [ ((line pos, column pos), (line pos, column pos, tokenStr)) | (_,(pos,tokenStr)) <- lexerPass0 src ]
 
+-- This will translate '' to __ and most splices 'ident to _ident. It will go wrong on weird identifiers like var'x.
+-- Patching only works when no splices appear in the formatted code.
+patchSrc "" = ""
+patchSrc ('\'':'\'':rest) = "__"++patchSrc rest
+patchSrc ('\'':c1:c2:rest) = if ((isAlpha c1 && isLower c1) || c1 == '_') && c2 /= '\'' then '_':c1:c2:patchSrc rest else '\'':c1:c2:patchSrc rest
+patchSrc (c:rest) = c : patchSrc rest
+       
 showLayout :: Layout -> String
 showLayout layout = concatMap showToken $ Map.elems layout
  where showToken (newlines, spaces, tokenStr) = replicate newlines '\n' ++ replicate spaces ' ' ++ tokenStr 

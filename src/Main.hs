@@ -16,9 +16,10 @@ import Data.List.Split
 import Layout
 
 
--- todo 
 -- bug: TemplateHaskell splices cannot be lexer by Haskell.Language.Lexer. Detecting this is not trivial.
+-- TODO: we need a Haskell lexer that can handle Template Haskell.
 -- add unit and regression tests
+-- do without { ; } fails
 -- respect empty lines in do/case sequences
 -- Check for tabs!
 -- check/fix block & line comments
