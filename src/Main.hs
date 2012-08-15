@@ -208,8 +208,8 @@ formatEnclosingDecl doc selOffset selLen =
           let (declOffset, declLen) = spanToRange doc . srcInfoSpan $ ann decl
               formattedLayout = execLayout doc $ formatGen decl
               doc' = showLayout formattedLayout
-              (declOffset', declLen') = nudgeRange' doc doc' formattedLayout declOffset declLen
-              (selOffset', selLen') = nudgeRange' doc doc' formattedLayout selOffset selLen 
+              (declOffset', declLen') = nudgeRange doc doc' formattedLayout declOffset declLen
+              (selOffset', selLen') = nudgeRange doc doc' formattedLayout selOffset selLen 
           in  --trace (show (declOffset, declLen) ++ "\ndoc:" ++ doc ++ "\ndoc'"++ doc' ++ "\n" ++ show formattedLayout) $
               (selOffset'+declOffset-declOffset', selLen', declOffset, declLen, select (declOffset', declLen') doc' )
               -- note: we adjust for the difference between declOffset and declOffset', because leading layout of the declaration
@@ -217,27 +217,6 @@ formatEnclosingDecl doc selOffset selLen =
               -- For EclipseFP it is better to only replace the change decl, instead of entire source,
               -- since undo will select the replaced part for some reason.
   
-layoutOld :: String -> Int -> Int -> (Int, Int, Int, Int, String)
-layoutOld doc selRange selLen =
-  let ((line,col),_) = rangeToSpan doc selRange selLen 
-      modl = unsafeParse doc
-  in  case getDeclForSpanModule line col modl of
-        Just (FunBind srcInfo ms) -> 
-          let declSpan = srcInfoSpan srcInfo
-              alignSpanss = map getNamePatternSpansMatch' ms
-          in  if all sameLine' alignSpanss then -- only do this if everything before = is on same line as =
-                let namePatternRangess = map (map $ spanToRange doc) alignSpanss
-                    nips = alignRangess namePatternRangess  -- todo: alignment goes wrong if one match has a guard and one doesn't
-                    doc' = applyNips doc nips
-                    
-                    (declRange, declLen) = spanToRange doc declSpan
-                    (declRange',declLen') = nudgeRange nips (declRange, declLen)
-                    (selRange',selLen') = nudgeRange nips (selRange, selLen)
-                    
-                in  -- trace (show nips ++ "\n" ++ doc') $ 
-                    (selRange', selLen', declRange, declLen, select (declRange', declLen') doc')
-              else (selRange, selLen, 0, 0, "") -- don't do anything
-        _      -> (selRange, selLen, 0,0, "")   -- don't do anything
 
 annSp :: Annotated ast => ast SrcSpanInfo -> SrcSpan
 annSp = srcInfoSpan . ann
@@ -245,81 +224,13 @@ annSp = srcInfoSpan . ann
 annPos :: Annotated ast => ast SrcSpanInfo -> Pos
 annPos = startPos . srcInfoSpan . ann
 
--- start of first and start of last must be on same line
-sameLine' :: [SrcSpan] -> Bool
-sameLine' []    = True
-sameLine' spans = srcSpanStartLine (head spans) == srcSpanStartLine (last spans) 
-
-getSpanHeight :: SrcSpan -> Int
-getSpanHeight (SrcSpan _ sl _ el _) = el - sl + 1
-
-data Nip = Nip { nipRange :: Int, nipDisplacement :: Int } deriving Show
-
--- non-optimized simple implemenation
--- nips are assumed to be sorted
-applyNips :: String -> [Nip] -> String
-applyNips doc [] = doc
-applyNips doc (Nip offset displ : nips) =
-  let doc' = applyNips doc nips
-  in  if displ < 0 
-      then let (left, right) = splitAt (offset + displ) doc'
-           in  left ++ drop (-displ) right 
-      else let (left, right) = splitAt offset doc'
-           in  left ++ replicate displ ' ' ++ right
-
--- probably not worth optimizing
-nudgeRange :: [Nip] -> (Int,Int) -> (Int,Int)
-nudgeRange nips (offset, len) = (offsetS, offsetE - offsetS)
- where offsetS = nudgeOffset nips offset
-       offsetE = nudgeOffset nips (offset + len) 
-
-nudgeOffset :: [Nip] -> Int -> Int
-nudgeOffset [] offset = offset
-nudgeOffset (Nip p d : nips) offset =
-  let offset' = nudgeOffset nips offset
-  in  if d < 0 
-      then if p <= offset -- removed sequence is before offset
-           then d + offset'        
-           else if p + d < offset -- offset is in removed sequence, no recursion, nips are sorted
-                then let nudge = offset - (p+d)
-                     in  offset - nudge
-                else  offset -- removed sequence is after offset, no recursion, nips are sorted
-      else if p <= offset then d + offset' else offset -- no recursion, nips are sorted
-
--- ...xxx...   -> ......
--- ...p        -> ...p
--- ... p       -> ...p
--- ...   p..   -> ...p
 
 
-
-
-nudgeRange' :: String -> String -> Layout -> Int -> Int -> (Int,Int)
-nudgeRange' doc doc' layout offset len = posSpanToRange doc' startPos' endPos'
+nudgeRange :: String -> String -> Layout -> Int -> Int -> (Int,Int)
+nudgeRange doc doc' layout offset len = posSpanToRange doc' startPos' endPos'
  where (startPos,endPos) = rangeToSpan doc offset len 
        startPos' = nudgePos startPos layout
        endPos' = nudgePos endPos layout
-
- 
-alignRangess :: [[(Int, Int)]] -> [Nip]
-alignRangess rangeLines =
-  let rangeCols = transpose rangeLines
-      colWidths  = init $ map (maximum . map snd) rangeCols -- last col is elt after aligned elts
-  in  --trace (show colWidths ++ show rangeLines) $ 
-      concatMap (alignRanges colWidths) rangeLines 
-
--- column widths is one shorter than ranges
-alignRanges :: [Int] -> [(Int, Int)] -> [Nip]
-alignRanges [] [_] = []
-alignRanges (w:colWidths) ((o,_):ranges@((o',_):_)) =
-  (if o' - o /= w + 1 then [Nip o' $ w - (o' - o) + 1]
-                      else [])
-  ++ alignRanges colWidths ranges
-alignRanges ws os = error $ "alignRanges: incompatible nr of widths and ranges: "++show ws ++ show os 
-
-getNamePatternSpansMatch' :: Match SrcSpanInfo -> [SrcSpan]
-getNamePatternSpansMatch' (Match _ nm pats rh _) = annSp nm : map annSp pats ++ [annSp rh]
-getNamePatternSpansMatch' (InfixMatch _ pl nm prs rh _) = [annSp pl, annSp nm] ++ map annSp prs ++ [annSp rh]
 
 
 startPos info = (startLine info, startColumn info)
@@ -352,7 +263,7 @@ posSpanToRange doc (sl, sc) (el, ec) = trace ("posSpanToRange " ++ show doc ++ "
        nrOfLines = length lineLengths
        getOffset l 0 | l <= 1             = error $ "posSpanToRange: column 0 not defined for l = "++show l
                      | l <= nrOfLines + 1 = sum (take (l-1) lineLengths) + l - 1 -
-                                            (if l == nrOfLines + 1 then 1 else 0) -- the last line doesn't have a \n
+                                            (if l == nrOfLines + 1 then 1 else 0) -- the last line doesn't have a newline
                      | otherwise          = error "posSpanToRange: line index too large"
        getOffset l c | l < 1     = error $ "posSpanToRange: line index < 1"
                      | otherwise =
@@ -365,26 +276,6 @@ posSpanToRange doc (sl, sc) (el, ec) = trace ("posSpanToRange " ++ show doc ++ "
 
 select :: (Int, Int) -> String -> String
 select (offset, len) doc = take len $ drop offset doc
-
-prg1 = unlines  
-  [ "f x = ()"
-  , "m ="
-  , " do   putStrLn \"\""
-  , "      return   ()"
-  , " -- bla"
-  , "      return ()"
-  , "   "
-  , "g :: ()"
-  , "g = ()" -- PatBind
-  , ""
-  , "ff x = ()" -- FunBind
-  ]
-
-prg2 = unlines
-  [ "f x yyyy z = ()"
-  , "f (_:_) _ blaa = ()"
-  , "g = ()"
-  ]
   
 unsafeParse inp = case parseFileContents inp of ParseOk modl -> modl
                                                 parseError   -> error $ show parseError
