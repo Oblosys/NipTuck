@@ -45,6 +45,7 @@ formatDecl decl         = return ()
 
 formatExp :: Exp SrcSpanInfo -> LayoutM ()
 formatExp e@Do{}   = formatDo e
+formatExp e@List{} = formatList e
 formatExp e@Case{} = formatCase e
 formatExp exp      = return ()
 
@@ -76,6 +77,7 @@ formatDataDecl (DataDecl (SrcSpanInfo _ (eq:ors)) _ mContext declHead conDecls m
 -- because formatter is applied top down, it works with nested do's (since the column is taken from the do keyword)
 
 -- todo: handle multiline statements, and modify indentation in a smart way
+--   probably don't need ref column, this information can be taken from original pos
 -- note: maybe make it impossible to access lines and columns from span info, since these cannot be used to compute moves
 -- (if token has moved already, pos from span is no longer correct) These errors will be tricky to detect.
 formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
@@ -97,6 +99,39 @@ formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
                         | (tk,stmt) <- zip (init semisBracket) (tail stmts) 
                         ]                                    
             ; applyNewlineIndent (doC+3) (last bracketsAndSemisSpans)
+            }
+    ; return ()
+    }
+
+-- all fixes here also apply to formatDo
+-- todo: figure out when we can use the originial position and when we need the actual one.
+formatList (List (SrcSpanInfo listInfo bracketsAndComaSpans) exps) =
+ do { let isMultiLine = fst (srcSpanStart listInfo) /= fst (srcSpanEnd listInfo)
+    ; (_,bracketC) <- getLayoutPos listInfo
+    ; case bracketsAndComaSpans of
+        [] -> return ()
+        (bracket:commasBracket) ->
+         do { -- traceM (concatMap showSpan bracketsAndSemisSpans) -- TODO: find nice combinators to do this stuff 
+            ; (_,refC) <- getLayoutPos (head exps)
+            ; applyLayout bracket 0 1
+            
+            ; let lastToken = srcSpanEnd listInfo -- TODO: this is not a token but a position
+            --; traceM $ show lastToken
+            ; applyLayoutAndReindent refC (head exps) lastToken 0 1
+            ; sequence_ [ if isMultiLine then
+                           do { applyNewlineIndent bracketC tk 
+                             ; (_,refC) <- getLayoutPos exp
+                             ; applyLayoutAndReindent refC exp lastToken 0 1 -- todo: cannot use lastToken here!
+                             }
+                          else
+                           do { applyLayout tk 0 0
+                              ; applyLayout exp 0 1
+                              }
+                        | (tk,exp) <- zip (init commasBracket) (tail exps) 
+                        ]                                    
+            ; if isMultiLine 
+              then applyNewlineIndent (bracketC) (last bracketsAndComaSpans)
+              else applyLayout (last bracketsAndComaSpans) 0 1
             }
     ; return ()
     }
