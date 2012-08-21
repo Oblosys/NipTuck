@@ -15,7 +15,7 @@ import Control.Monad
 import Data.List.Split
 import Layout
 
-
+-- TODO: add tags to heads inits tails and lasts
 -- bug: TemplateHaskell splices cannot be lexer by Haskell.Language.Lexer. Detecting this is not trivial.
 -- TODO: we need a Haskell lexer that can handle Template Haskell.
 -- add unit and regression tests
@@ -105,6 +105,8 @@ formatDo (Do (SrcSpanInfo doInfo bracketsAndSemisSpans) stmts) =
 
 -- all fixes here also apply to formatDo
 -- todo: figure out when we can use the originial position and when we need the actual one.
+
+formatList (List _ [])                                             = return () -- don't format empty list
 formatList (List (SrcSpanInfo listInfo bracketsAndComaSpans) exps) =
  do { let isMultiLine = fst (srcSpanStart listInfo) /= fst (srcSpanEnd listInfo)
     ; (_,bracketC) <- getLayoutPos listInfo
