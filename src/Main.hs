@@ -115,7 +115,6 @@ formatList (List (SrcSpanInfo listInfo bracketsAndComaSpans) exps) =
         (bracket:commasBracket) ->
          do { -- traceM (concatMap showSpan bracketsAndSemisSpans) -- TODO: find nice combinators to do this stuff 
             ; (_,refC) <- getLayoutPos (head exps)
-            ; applyLayout bracket 0 1
             
             ; let lastToken = srcSpanEnd listInfo -- TODO: this is not a token but a position
             --; traceM $ show lastToken
