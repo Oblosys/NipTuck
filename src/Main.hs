@@ -143,7 +143,7 @@ formatList (List (SrcSpanInfo listInfo bracketsAndComaSpans) exps) =
 formatCase (Case (SrcSpanInfo _ (case_:of_:_)) exp alts) =
  do { rhsRefCols <- -- this is not very nice
         sequence [ case galts of
-                     UnGuardedAlt _ exp -> fmap snd $ getLayoutPos exp
+                     UnGuardedRhs _ exp -> fmap snd $ getLayoutPos exp
                      _                  -> return 0 -- not used
                  | alt@(Alt _ _ galts _) <- alts ] 
  
@@ -161,7 +161,7 @@ formatCase (Case (SrcSpanInfo _ (case_:of_:_)) exp alts) =
                      } | (fill,(pat,arrow)) <- zip fills patArrowSpans]
     
     ; sequence_ [ case galts of
-                    UnGuardedAlt inf exp -> applyLayoutAndReindent refC (annPos exp) (srcSpanEnd . srcInfoSpan $ inf) 0 1
+                    UnGuardedRhs inf exp -> applyLayoutAndReindent refC (annPos exp) (srcSpanEnd . srcInfoSpan $ inf) 0 1
                     _                  -> return ()
                 | (refC, alt@(Alt _ _ galts _)) <- zip rhsRefCols alts ] 
     }
@@ -369,7 +369,7 @@ processModule :: Module SrcSpanInfo -> [SrcSpanInfo]
 processModule (Module _ _ _  _ decls) = concatMap processDecl decls
 processModule _                       = []
 
-processDecl (PatBind _ _ _ rhs _) = processRhs rhs
+processDecl (PatBind _ _ rhs _) = processRhs rhs
 processDecl (FunBind _ matches)   = concatMap processMatch matches
 processDecl _                     = []
 
